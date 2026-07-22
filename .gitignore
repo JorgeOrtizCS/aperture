@@ -1,0 +1,18 @@
+# Flutter
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/build/
+mobile/*.iml
+
+# .NET
+api/bin/
+api/obj/
+api/*.user
+
+# General
+.DS_Store
+*.log
+.env
+.vscode/
+.idea/
