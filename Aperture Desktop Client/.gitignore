@@ -1,0 +1,74 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+# Visual Studio cache
+.vscode/
+
+# Test results
+TestResults/
+*.trx
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+
+# ASP.NET temporary files
+.vs/
+App_Data/
+aspnet_client/
+
+# ReSharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# Code analysis
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.log
+
+# SQL Server / Local DB
+*.mdf
+*.ldf
+*.ndf
+
+# Publish output
+publish/
+PublishProfiles/
+
+# User-specific files
+*.user
+*.userprefs
+*.rsuser
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+
+# Rider
+.idea/
+
+# Node (if applicable)
+node_modules/
+
+# Coverage
+coverage/
