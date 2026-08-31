@@ -99,6 +99,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Global.asax" />
     <Content Include="README.txt" />
     <Content Include="Web.config" />
   </ItemGroup>
@@ -111,7 +112,9 @@
     <Compile Include="Controllers\UserController.cs" />
     <Compile Include="Extensions\StringExtensions.cs" />
     <Compile Include="Filters\TokenAuthorizeAttribute.cs" />
-    <Compile Include="Global.asax.cs" />
+    <Compile Include="Global.asax.cs">
+      <DependentUpon>Global.asax</DependentUpon>
+    </Compile>
     <Compile Include="Infrastructure\AuditLoggingHandler.cs" />
     <Compile Include="Infrastructure\RequestUser.cs" />
     <Compile Include="Models\ApplicationUser.cs" />
