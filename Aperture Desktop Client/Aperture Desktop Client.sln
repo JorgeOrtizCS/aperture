@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36408.4 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aperture Desktop Client", "Aperture Desktop Client\Aperture Desktop Client.csproj", "{81FA38FE-0A62-40D2-BD3C-8F014CDB31D8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{81FA38FE-0A62-40D2-BD3C-8F014CDB31D8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{81FA38FE-0A62-40D2-BD3C-8F014CDB31D8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{81FA38FE-0A62-40D2-BD3C-8F014CDB31D8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{81FA38FE-0A62-40D2-BD3C-8F014CDB31D8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {080A201A-723D-4318-BA06-31FB96958288}
+	EndGlobalSection
+EndGlobal
