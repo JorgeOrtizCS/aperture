@@ -16,3 +16,6 @@ api/*.user
 .env
 .vscode/
 .idea/
+venv/
+__pycache__/
+*.pyc
