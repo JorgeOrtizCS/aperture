@@ -1,259 +1,30 @@
-﻿using System;
+using System;
+using System.Collections.Concurrent;
 using System.Data.SqlClient;
 using Aperture_WebAPI.Config;
 using Aperture_WebAPI.Models;
-
-namespace Aperture_WebAPI.Services
-{
-    public class AuthenticationService
-    {
-        private const int TokenExpirationHours = 8;
-
-        public LoginResponse Login(LoginRequest request)
-        {
-            if (request == null)
-            {
-                return Failure("Invalid request.");
-            }
-
-            if (string.IsNullOrWhiteSpace(request.Username) ||
-                string.IsNullOrWhiteSpace(request.Password))
-            {
-                return Failure("Username and password are required.");
-            }
-
-            ApplicationUser user = GetUser(request.Username);
-
-            if (user == null)
-            {
-                return Failure("Invalid username or password.");
-            }
-
-            if (!user.IsActive)
-            {
-                return Failure("This account is inactive.");
-            }
-
-            bool validPassword =
-                PasswordService.VerifyPassword(
-                    request.Password,
-                    user.PasswordHash);
-
-            if (!validPassword)
-            {
-                return Failure("Invalid username or password.");
-            }
-
-            string token = TokenService.GenerateToken();
-
-            string tokenHash = TokenService.HashToken(token);
-
-            DateTime expiresAt =
-                DateTime.UtcNow.AddHours(TokenExpirationHours);
-
-            SaveToken(
-                user.Id,
-                tokenHash,
-                expiresAt);
-
-            return new LoginResponse
-            {
-                Success = true,
-                Message = "Login successful.",
-                Token = token,
-                ExpiresAt = expiresAt,
-                User = new UserInfo
-                {
-                    Id = user.Id,
-                    Username = user.Username,
-                    Email = user.Email
-                }
-            };
-        }
-
-        public bool Logout(string token)
-        {
-            if (string.IsNullOrWhiteSpace(token))
-                return false;
-
-            string tokenHash =
-                TokenService.HashToken(token);
-
-            using (SqlConnection connection = new SqlConnection(ConnectionStrings.Database))
-            {
-                connection.Open();
-
-                const string sql = @"
-                    UPDATE UserTokens
-                    SET RevokedAt = GETUTCDATE()
-                    WHERE TokenHash = @TokenHash
-                      AND RevokedAt IS NULL";
-
-                using (SqlCommand command =
-                       new SqlCommand(sql, connection))
-                {
-                    command.Parameters.AddWithValue(
-                        "@TokenHash",
-                        tokenHash);
-
-                    return command.ExecuteNonQuery() > 0;
-                }
-            }
-        }
-
-        public ApplicationUser ValidateToken(string token)
-        {
-            if (string.IsNullOrWhiteSpace(token))
-                return null;
-
-            string tokenHash =
-                TokenService.HashToken(token);
-
-            using (SqlConnection connection = new SqlConnection(ConnectionStrings.Database))
-            {
-                connection.Open();
-
-                const string sql = @"
-                    SELECT
-                        u.Id,
-                        u.Username,
-                        u.Email,
-                        u.PasswordHash,
-                        u.IsActive,
-                        u.CreatedAt
-                    FROM UserTokens t
-                    INNER JOIN Users u
-                        ON t.UserId = u.Id
-                    WHERE t.TokenHash = @TokenHash
-                      AND t.RevokedAt IS NULL
-                      AND t.ExpiresAt > GETUTCDATE()
-                      AND u.IsActive = 1";
-
-                using (SqlCommand command =
-                       new SqlCommand(sql, connection))
-                {
-                    command.Parameters.AddWithValue(
-                        "@TokenHash",
-                        tokenHash);
-
-                    using (SqlDataReader reader =
-                           command.ExecuteReader())
-                    {
-                        if (!reader.Read())
-                            return null;
-
-                        return new ApplicationUser
-                        {
-                            Id = reader.GetInt32(0),
-                            Username = reader.GetString(1),
-                            Email = reader.IsDBNull(2)
-                                ? null
-                                : reader.GetString(2),
-                            PasswordHash = reader.GetString(3),
-                            IsActive = reader.GetBoolean(4),
-                            CreatedAt = reader.GetDateTime(5)
-                        };
-                    }
-                }
-            }
-        }
-
-        private ApplicationUser GetUser(string username)
-        {
-            using (SqlConnection connection = new SqlConnection(ConnectionStrings.Database))
-            {
-                connection.Open();
-
-                const string sql = @"
-                    SELECT
-                        Id,
-                        Username,
-                        Email,
-                        PasswordHash,
-                        IsActive,
-                        CreatedAt
-                    FROM Users
-                    WHERE Username = @Username";
-
-                using (SqlCommand command =
-                       new SqlCommand(sql, connection))
-                {
-                    command.Parameters.AddWithValue(
-                        "@Username",
-                        username);
-
-                    using (SqlDataReader reader =
-                           command.ExecuteReader())
-                    {
-                        if (!reader.Read())
-                            return null;
-
-                        return new ApplicationUser
-                        {
-                            Id = reader.GetInt32(0),
-                            Username = reader.GetString(1),
-                            Email = reader.IsDBNull(2)
-                                ? null
-                                : reader.GetString(2),
-                            PasswordHash = reader.GetString(3),
-                            IsActive = reader.GetBoolean(4),
-                            CreatedAt = reader.GetDateTime(5)
-                        };
-                    }
-                }
-            }
-        }
-
-        private void SaveToken(
-            int userId,
-            string tokenHash,
-            DateTime expiresAt)
-        {
-            using (SqlConnection connection = new SqlConnection(ConnectionStrings.Database))
-            {
-                connection.Open();
-
-                const string sql = @"
-                    INSERT INTO UserTokens
-                    (
-                        UserId,
-                        TokenHash,
-                        ExpiresAt
-                    )
-                    VALUES
-                    (
-                        @UserId,
-                        @TokenHash,
-                        @ExpiresAt
-                    )";
-
-                using (SqlCommand command =
-                       new SqlCommand(sql, connection))
-                {
-                    command.Parameters.AddWithValue(
-                        "@UserId",
-                        userId);
-
-                    command.Parameters.AddWithValue(
-                        "@TokenHash",
-                        tokenHash);
-
-                    command.Parameters.AddWithValue(
-                        "@ExpiresAt",
-                        expiresAt);
-
-                    command.ExecuteNonQuery();
-                }
-            }
-        }
-
-        private LoginResponse Failure(string message)
-        {
-            return new LoginResponse
-            {
-                Success = false,
-                Message = message
-            };
-        }
-    }
+namespace Aperture_WebAPI.Services {
+ public class AuthenticationService {
+  // The approved eight-table schema has no token table. Session tokens live only
+  // in this IIS worker process and are lost on application restart/recycle.
+  sealed class SessionToken {public int UserId;public DateTime ExpiresAt;}
+  static readonly ConcurrentDictionary<string,SessionToken> Tokens=new ConcurrentDictionary<string,SessionToken>();
+  public LoginResponse Login(LoginRequest request) {
+   if(request==null || string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))return Failure("Username and password are required.");
+   var user=FindUser(request.Username);if(user==null || !PasswordService.VerifyPassword(request.Password,user.PasswordHash))return Failure("Invalid username or password.");
+   var token=TokenService.GenerateToken();var expires=DateTime.UtcNow.AddHours(8);Tokens[TokenService.HashToken(token)]=new SessionToken {UserId=user.Id,ExpiresAt=expires};
+   return new LoginResponse {Success=true,Message="Login successful.",Token=token,ExpiresAt=expires,User=new UserInfo {Id=user.Id,Username=user.Username}};
+  }
+  static LoginResponse Failure(string message) {return new LoginResponse {Success=false,Message=message};}
+  public bool Logout(string token) {SessionToken removed;return !string.IsNullOrWhiteSpace(token) && Tokens.TryRemove(TokenService.HashToken(token),out removed);}
+  public ApplicationUser ValidateToken(string token) {
+   if(string.IsNullOrWhiteSpace(token))return null;
+   SessionToken session;var hash=TokenService.HashToken(token);if(!Tokens.TryGetValue(hash,out session))return null;
+   if(session.ExpiresAt<=DateTime.UtcNow){Tokens.TryRemove(hash,out session);return null;}
+   using(var db=new SqlConnection(ConnectionStrings.Database)) {db.Open();using(var c=new SqlCommand("SELECT UserID,Username,PasswordHash,DateCreated FROM Users WHERE UserID=@id",db)) {c.Parameters.AddWithValue("@id",session.UserId);using(var r=c.ExecuteReader()){if(!r.Read())return null;return new ApplicationUser {Id=r.GetInt32(0),Username=r.GetString(1),PasswordHash=r.GetString(2),CreatedAt=r.GetDateTime(3),IsActive=true};}}}
+  }
+  static ApplicationUser FindUser(string username) {
+   using(var db=new SqlConnection(ConnectionStrings.Database)) {db.Open();using(var c=new SqlCommand("SELECT UserID,Username,PasswordHash,DateCreated FROM Users WHERE Username=@name",db)) {c.Parameters.AddWithValue("@name",username);using(var r=c.ExecuteReader()){if(!r.Read())return null;return new ApplicationUser {Id=r.GetInt32(0),Username=r.GetString(1),PasswordHash=r.GetString(2),CreatedAt=r.GetDateTime(3),IsActive=true};}}}
+  }
+ }
 }

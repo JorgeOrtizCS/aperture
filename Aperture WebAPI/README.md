@@ -1,173 +1,27 @@
-# API (.NET Framework 4.7.2)
+# Aperture Web API — SQL Server diagram edition
 
-# API Endpoints
+This version targets **ApertureDB** created by `Aperture_Diagram_Database.sql` (included beside the solution). Use SQL Server Management Studio to run that script against a fresh server/database. The project targets .NET Framework 4.7.2 and ASP.NET Web API 2; open `Aperture WebAPI.sln` in Visual Studio on Windows, restore NuGet packages, and launch with IIS Express. Set `Web.config`'s `Database` connection string to your instance. The desktop project's `Program.cs` must point to the resulting API HTTPS URL (default `https://localhost:44353/`). Grant the IIS Express/app pool identity write access to `App_Data/ContentFiles`; it is created automatically on first share. Back up that directory **with** the SQL database: SQL holds metadata, not file bytes.
 
-All requests and responses use `application/json`.
+The UI supports account creation and login, text and PNG/JPEG sharing (maximum image size 5 MB), recipient dashboard, start/expiry time, optional one-view limit, approved-device requirement, viewing sessions, rechecks every five seconds, owner pause/resume and revocation, and request/audit and environment-check records. Camera viewing/capture is not included. Viewing images is for already-selected local image files.
 
----
+The diagram has no token table. Login bearer tokens and the viewing-session-to-device association are held **in one IIS worker's memory**; recycling the worker invalidates logins and viewers. Use one worker process for the demo. `MaximumViews` is `BIT` in the supplied diagram, so `1` means **one view** and `0` means unlimited. A recipient can register a device, but registration starts untrusted. The locally stored device identifier is a demo identifier and can be copied; it is not hardware attestation. An administrator can explicitly approve it in SSMS:
 
-## Register
-
-**POST** `/api/register`
-
-### Request
-
-```json
-{
-  "username": "john",
-  "email": "john@example.com",
-  "password": "MyPassword123!"
-}
+```sql
+USE ApertureDB;
+SELECT DeviceID, UserID, DeviceName, DeviceIdentifier, IsTrusted FROM dbo.TrustedDevices;
+-- Review the user and device first; replace the ID below.
+UPDATE dbo.TrustedDevices SET IsTrusted = 1 WHERE DeviceID = 123;
 ```
 
-### Response
+The desktop cannot reliably prove location or prevent screenshots. If a policy's `RequiredLocation` or `ScreenshotRestriction` is set in SQL or by another client, this API **denies** viewing rather than claiming that it verified the requirement. Text and image bytes already displayed or copied cannot be remotely erased; recurring checks control continued display in this app, not previously obtained copies. Do not expose the server's `App_Data` directory or use this prototype to protect real confidential documents.
 
-```json
-{
-  "success": true,
-  "message": "Registration successful."
-}
-```
+## Routes
 
----
+- `POST /api/register`: `{ "firstName":"A", "lastName":"B", "username":"ab", "password":"..." }`
+- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/user/me`.
+- Authenticated `GET /api/content` and `POST /api/content` to list and share.
+- Authenticated `POST /api/content/{id}/policy` to pause/resume and `POST /api/content/{id}/revoke` (owner only).
+- Authenticated `POST /api/devices` registers the current desktop device as **untrusted**.
+- Authenticated `POST /api/content/{id}/sessions` opens a recipient session, `POST /api/content/sessions/{sessionId}/check` rechecks, `POST /api/content/sessions/{sessionId}/end` closes.
 
-## Login
-
-**POST** `/api/auth/login`
-
-### Request
-
-```json
-{
-  "username": "john",
-  "password": "MyPassword123!"
-}
-```
-
-### Response
-
-```json
-{
-  "success": true,
-  "message": "Login successful.",
-  "token": "TOKEN_GOES_HERE",
-  "expiresAt": "2026-09-01T01:30:00Z",
-  "user": {
-    "id": 1,
-    "username": "john",
-    "email": "john@example.com"
-  }
-}
-```
-
-Use the returned `token` for authenticated endpoints.
-
----
-
-## Get Current User
-
-**GET** `/api/user/me`
-
-### Headers
-
-```http
-Authorization: Bearer TOKEN_GOES_HERE
-```
-
-### Response
-
-```json
-{
-  "success": true,
-  "user": {
-    "id": 1,
-    "username": "john",
-    "email": "john@example.com"
-  }
-}
-```
-
----
-
-## Logout
-
-**POST** `/api/auth/logout`
-
-### Headers
-
-```http
-Authorization: Bearer TOKEN_GOES_HERE
-```
-
-### Response
-
-```json
-{
-  "success": true,
-  "message": "Logout successful."
-}
-```
-
-The token is revoked and can no longer be used for authenticated requests.
-
----
-
-## Check Content State
-
-**POST** `/api/state/check`
-
-### Headers
-
-```http
-Authorization: Bearer TOKEN_GOES_HERE
-Content-Type: application/json
-```
-
-### Request
-
-```json
-{
-  "contentObjectId": 1001,
-  "state": {
-    "hasCompletedIntro": true,
-    "level": 7,
-    "hasSubscription": true
-  }
-}
-```
-
-The API retrieves the requirements for the specified `contentObjectId` from SQL Server, deserializes the stored JSON into the `Requirements` object, and compares it against the supplied state.
-
-### Access Granted
-
-```json
-{
-  "success": true,
-  "accessGranted": true,
-  "contentObjectId": 1001,
-  "message": "All required conditions have been fulfilled."
-}
-```
-
-### Access Denied
-
-```json
-{
-  "success": true,
-  "accessGranted": false,
-  "contentObjectId": 1001,
-  "message": "Required conditions have not been fulfilled."
-}
-```
-
----
-
-## Authentication
-
-Authenticated endpoints require a bearer token:
-
-```http
-Authorization: Bearer TOKEN_GOES_HERE
-```
-
-The token is returned by `/api/auth/login` and remains valid until it expires or is revoked by `/api/auth/logout`.
+Run this version with the *diagram* database script, not the previous prototype schema drafts. Previous content data is not migrated.

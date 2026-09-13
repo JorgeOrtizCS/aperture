@@ -1,4 +1,4 @@
-﻿using System.Web.Http;
+using System.Web.Http;
 using Aperture_WebAPI.Filters;
 using Aperture_WebAPI.Infrastructure;
 
@@ -24,7 +24,7 @@ namespace Aperture_WebAPI.Controllers
                 {
                     id = user.Id,
                     username = user.Username,
-                    email = user.Email
+                    email = (string)null
                 }
             });
         }

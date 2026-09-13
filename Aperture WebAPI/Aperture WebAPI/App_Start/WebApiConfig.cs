@@ -1,4 +1,4 @@
-﻿using System.Web.Http;
+using System.Web.Http;
 using Aperture_WebAPI.Infrastructure;
 
 namespace Aperture_WebAPI.App_Start
@@ -10,8 +10,7 @@ namespace Aperture_WebAPI.App_Start
         {
             config.MapHttpAttributeRoutes();
 
-            //config.MessageHandlers.Add(
-            //    new AuditLoggingHandler());
+            config.MessageHandlers.Add(new AuditLoggingHandler());
 
             config.Routes.MapHttpRoute(
                 name: "DefaultApi",
