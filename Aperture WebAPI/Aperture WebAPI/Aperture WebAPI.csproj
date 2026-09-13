@@ -108,7 +108,6 @@
     <Compile Include="Config\ConnectionStrings.cs" />
     <Compile Include="Controllers\AuthenticationController.cs" />
     <Compile Include="Controllers\RegisterController.cs" />
-    <Compile Include="Controllers\StateController.cs" />
     <Compile Include="Controllers\UserController.cs" />
     <Compile Include="Extensions\StringExtensions.cs" />
     <Compile Include="Filters\TokenAuthorizeAttribute.cs" />
@@ -118,23 +117,19 @@
     <Compile Include="Infrastructure\AuditLoggingHandler.cs" />
     <Compile Include="Infrastructure\RequestUser.cs" />
     <Compile Include="Models\ApplicationUser.cs" />
+    <Compile Include="Controllers\ContentController.cs" />
+    <Compile Include="Controllers\DeviceController.cs" />
+    <Compile Include="Models\SharedContent.cs" />
     <Compile Include="Models\AuditLog.cs" />
-    <Compile Include="Models\ContentObject.cs" />
-    <Compile Include="Models\Requirements.cs" />
     <Compile Include="Models\LoginRequestDto.cs" />
     <Compile Include="Models\LoginResponseDto.cs" />
     <Compile Include="Models\RegisterRequestDto.cs" />
-    <Compile Include="Models\StateCheckRequestDto.cs" />
-    <Compile Include="Models\StateCheckResponseDto.cs" />
     <Compile Include="Models\UserInfo.cs" />
-    <Compile Include="Models\UserState.cs" />
     <Compile Include="Models\UserToken.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Repositories\AuditLogRepository.cs" />
-    <Compile Include="Repositories\ContentObjectRepository.cs" />
     <Compile Include="Services\AuthenticationService.cs" />
     <Compile Include="Services\PasswordService.cs" />
-    <Compile Include="Services\StateManagementService.cs" />
     <Compile Include="Services\TokenService.cs" />
   </ItemGroup>
   <ItemGroup>

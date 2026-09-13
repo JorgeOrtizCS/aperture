@@ -62,17 +62,14 @@
       <DependentUpon>MainForm.cs</DependentUpon>
     </Compile>
     <Compile Include="Models\LoginRequestDto.cs" />
+    <Compile Include="Models\SharedContent.cs" />
     <Compile Include="Models\LoginResponseDto.cs" />
     <Compile Include="Models\RegisterRequestDto.cs" />
-    <Compile Include="Models\StateCheckRequestDto.cs" />
-    <Compile Include="Models\StateCheckResponseDto.cs" />
     <Compile Include="Models\UserDto.cs" />
-    <Compile Include="Models\UserState.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Services\ApiClient.cs" />
     <Compile Include="Services\AuthenticationService.cs" />
-    <Compile Include="Services\StateService.cs" />
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>

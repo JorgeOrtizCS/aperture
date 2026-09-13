@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Threading;
@@ -124,10 +124,10 @@ namespace Aperture_WebAPI.Infrastructure
                     GetUserAgent(request),
 
                 RequestBody =
-                    await GetRequestBody(request),
+                    null, // Never persist request bodies.
 
                 ResponseBody =
-                    await GetResponseBody(response),
+                    null, // Never persist response bodies.
 
                 ErrorMessage =
                     errorMessage,
@@ -139,7 +139,7 @@ namespace Aperture_WebAPI.Infrastructure
                     System.DateTime.UtcNow,
 
                 DurationMs =
-                    System.Convert.ToInt32(durationMs)
+                    (int)System.Math.Min(durationMs, int.MaxValue)
             };
 
             var repository =

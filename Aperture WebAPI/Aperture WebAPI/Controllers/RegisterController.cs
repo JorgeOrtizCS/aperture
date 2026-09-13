@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Data.SqlClient;
 using System.Net;
 using System.Web.Http;
@@ -28,6 +28,10 @@ namespace Aperture_WebAPI.Controllers
                 return BadRequest(
                     "Password must be at least 8 characters.");
 
+            if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName)
+                || request.FirstName.Length > 100 || request.LastName.Length > 100 || request.Username.Length > 100)
+                return BadRequest("First name, last name, and username are required (maximum 100 characters).");
+
             string passwordHash =
                 PasswordService.HashPassword(
                     request.Password);
@@ -36,21 +40,8 @@ namespace Aperture_WebAPI.Controllers
             {
                 connection.Open();
 
-                const string sql = @"
-                    INSERT INTO Users
-                    (
-                        Username,
-                        Email,
-                        PasswordHash,
-                        IsActive
-                    )
-                    VALUES
-                    (
-                        @Username,
-                        @Email,
-                        @PasswordHash,
-                        1
-                    )";
+                const string sql = @"INSERT INTO Users(FirstName, LastName, Username, PasswordHash)
+                    VALUES(@FirstName, @LastName, @Username, @PasswordHash)";
 
                 using (SqlCommand command =
                        new SqlCommand(sql, connection))
@@ -59,9 +50,8 @@ namespace Aperture_WebAPI.Controllers
                         "@Username",
                         request.Username);
 
-                    command.Parameters.AddWithValue(
-                        "@Email",
-                        (object)request.Email ?? DBNull.Value);
+                    command.Parameters.AddWithValue("@FirstName", request.FirstName.Trim());
+                    command.Parameters.AddWithValue("@LastName", request.LastName.Trim());
 
                     command.Parameters.AddWithValue(
                         "@PasswordHash",
