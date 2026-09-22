@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+
 import 'screens/welcome_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   runApp(const ApertureApp());
@@ -13,10 +15,7 @@ class ApertureApp extends StatelessWidget {
     return MaterialApp(
       title: 'Aperture',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        fontFamily: 'Arial',
-      ),
+      theme: AppTheme.theme,
       home: const WelcomeScreen(),
     );
   }

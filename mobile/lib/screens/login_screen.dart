@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+
+import '../theme/app_theme.dart';
+import '../widgets/aperture_button.dart';
+import '../widgets/aperture_text_field.dart';
 import 'dashboard_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -33,11 +37,9 @@ class _LoginScreenState extends State<LoginScreen> {
     // Temporary navigation until backend authentication is connected.
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (context) => const DashboardScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const DashboardScreen()),
     );
-    }
+  }
 
   @override
   void dispose() {
@@ -49,13 +51,10 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FC),
+      backgroundColor: AppTheme.background,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 30,
-            vertical: 24,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -68,7 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 alignment: Alignment.centerLeft,
                 icon: const Icon(
                   Icons.arrow_back_ios_new,
-                  color: Color(0xFF1F2937),
+                  color: AppTheme.textPrimary,
                 ),
               ),
 
@@ -109,108 +108,39 @@ class _LoginScreenState extends State<LoginScreen> {
               const Center(
                 child: Text(
                   'Sign in to continue to Aperture',
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: Color(0xFF6B7280),
-                  ),
+                  style: TextStyle(fontSize: 15, color: AppTheme.textSecondary),
                 ),
               ),
 
               const SizedBox(height: 42),
 
-              const Text(
-                'Username',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF374151),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              TextField(
+              ApertureTextField(
                 controller: _usernameController,
+                label: 'Username',
+                hintText: 'Enter your username',
+                icon: Icons.person_outline,
                 textInputAction: TextInputAction.next,
-                decoration: InputDecoration(
-                  hintText: 'Enter your username',
-                  prefixIcon: const Icon(Icons.person_outline),
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(
-                      color: Color(0xFFD1D5DB),
-                    ),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(
-                      color: Color(0xFFD1D5DB),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(
-                      color: Color(0xFF1F4E79),
-                      width: 2,
-                    ),
-                  ),
-                ),
               ),
 
               const SizedBox(height: 22),
 
-              const Text(
-                'Password',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF374151),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              TextField(
+              ApertureTextField(
                 controller: _passwordController,
+                label: 'Password',
+                hintText: 'Enter your password',
+                icon: Icons.lock_outline,
                 obscureText: _obscurePassword,
                 onSubmitted: (_) => _handleLogin(),
-                decoration: InputDecoration(
-                  hintText: 'Enter your password',
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  suffixIcon: IconButton(
-                    onPressed: () {
-                      setState(() {
-                        _obscurePassword = !_obscurePassword;
-                      });
-                    },
-                    icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                    ),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(
-                      color: Color(0xFFD1D5DB),
-                    ),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(
-                      color: Color(0xFFD1D5DB),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(
-                      color: Color(0xFF1F4E79),
-                      width: 2,
-                    ),
+                suffixIcon: IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _obscurePassword = !_obscurePassword;
+                    });
+                  },
+                  icon: Icon(
+                    _obscurePassword
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
                   ),
                 ),
               ),
@@ -219,36 +149,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 14),
                 Text(
                   _errorMessage!,
-                  style: const TextStyle(
-                    color: Colors.red,
-                    fontSize: 14,
-                  ),
+                  style: const TextStyle(color: Colors.red, fontSize: 14),
                 ),
               ],
 
               const SizedBox(height: 30),
 
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _handleLogin,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1F4E79),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: const Text(
-                    'Sign In',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
+              ApertureButton(label: 'Sign In', onPressed: _handleLogin),
 
               const SizedBox(height: 24),
 
@@ -256,10 +163,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Text(
                   'Your content. Your conditions. Your control.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF9CA3AF),
-                  ),
+                  style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
                 ),
               ),
             ],

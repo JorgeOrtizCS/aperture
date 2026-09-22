@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../theme/app_theme.dart';
+import '../widgets/aperture_button.dart';
 import 'login_screen.dart';
 
 class WelcomeScreen extends StatelessWidget {
@@ -7,7 +10,7 @@ class WelcomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F9FC),
+      backgroundColor: AppTheme.background,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -48,10 +51,7 @@ class WelcomeScreen extends StatelessWidget {
               const Text(
                 'Share sensitive content securely.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Color(0xFF6B7280),
-                ),
+                style: TextStyle(fontSize: 18, color: Color(0xFF6B7280)),
               ),
 
               const SizedBox(height: 12),
@@ -68,44 +68,23 @@ class WelcomeScreen extends StatelessWidget {
 
               const Spacer(),
 
-              // Get Started Button
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const LoginScreen(),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1F4E79),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+              ApertureButton(
+                label: 'Get Started',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const LoginScreen(),
                     ),
-                  ),
-                  child: const Text(
-                    'Get Started',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
+                  );
+                },
               ),
 
               const SizedBox(height: 16),
 
               const Text(
                 'Secure • Controlled • Private',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF9CA3AF),
-                ),
+                style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
               ),
 
               const SizedBox(height: 28),
