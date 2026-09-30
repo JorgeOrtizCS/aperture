@@ -30,6 +30,33 @@ class _SecureViewerScreenState extends State<SecureViewerScreen> {
     viewLimit: 3,
   );
 
+  Future<void> _openSecureContent() async {
+    final exitReason = await Navigator.push<SecureContentViewerExitReason>(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            SecureContentViewerScreen(contentTitle: widget.contentTitle),
+      ),
+    );
+
+    if (!mounted ||
+        exitReason != SecureContentViewerExitReason.securityViolation) {
+      return;
+    }
+
+    setState(() {
+      _accessSuspended = true;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Secure viewing ended because a required security condition is no longer satisfied.',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -101,18 +128,7 @@ class _SecureViewerScreenState extends State<SecureViewerScreen> {
             ApertureButton(
               label: 'Open Secure Content',
               icon: Icons.open_in_full_outlined,
-              onPressed: _accessSuspended
-                  ? null
-                  : () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => SecureContentViewerScreen(
-                            contentTitle: widget.contentTitle,
-                          ),
-                        ),
-                      );
-                    },
+              onPressed: _accessSuspended ? null : _openSecureContent,
             ),
             const SizedBox(height: 28),
             const SectionHeader(

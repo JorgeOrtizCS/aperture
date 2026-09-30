@@ -1,11 +1,94 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../services/screen_capture_protection.dart';
 import '../theme/app_theme.dart';
 
-class SecureContentViewerScreen extends StatelessWidget {
+enum SecureContentViewerExitReason { securityViolation }
+
+class SecureContentViewerScreen extends StatefulWidget {
   final String contentTitle;
 
   const SecureContentViewerScreen({super.key, required this.contentTitle});
+
+  @override
+  State<SecureContentViewerScreen> createState() =>
+      _SecureContentViewerScreenState();
+}
+
+class _SecureContentViewerScreenState extends State<SecureContentViewerScreen> {
+  final ScreenCaptureProtection _screenCaptureProtection =
+      ScreenCaptureProtection.instance;
+  StreamSubscription<bool>? _captureStateSubscription;
+  bool _captureDetected = false;
+  bool _viewingConditionInvalid = false;
+  bool _protectionDisabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _captureDetected = _screenCaptureProtection.isCaptureActive;
+    _captureStateSubscription = _screenCaptureProtection.captureStateChanges
+        .listen(_handleCaptureStateChanged);
+    _enableScreenCaptureProtection();
+  }
+
+  Future<void> _enableScreenCaptureProtection() async {
+    final captureDetected = await _screenCaptureProtection.enableProtection();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _captureDetected = captureDetected;
+    });
+  }
+
+  void _handleCaptureStateChanged(bool captureDetected) {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _captureDetected = captureDetected;
+    });
+  }
+
+  Future<void> _simulateSecurityViolation() async {
+    if (_viewingConditionInvalid) {
+      return;
+    }
+
+    setState(() {
+      _viewingConditionInvalid = true;
+    });
+
+    await _disableScreenCaptureProtection();
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.pop(context, SecureContentViewerExitReason.securityViolation);
+  }
+
+  Future<void> _disableScreenCaptureProtection() async {
+    if (_protectionDisabled) {
+      return;
+    }
+
+    _protectionDisabled = true;
+    await _captureStateSubscription?.cancel();
+    _captureStateSubscription = null;
+    await _screenCaptureProtection.disableProtection();
+  }
+
+  @override
+  void dispose() {
+    unawaited(_disableScreenCaptureProtection());
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -15,7 +98,7 @@ class SecureContentViewerScreen extends StatelessWidget {
         backgroundColor: AppTheme.background,
         foregroundColor: AppTheme.textPrimary,
         elevation: 0,
-        title: Text(contentTitle),
+        title: Text(widget.contentTitle),
         actions: const [
           Padding(
             padding: EdgeInsets.only(right: 16),
@@ -37,21 +120,153 @@ class SecureContentViewerScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: AppTheme.border),
                   ),
-                  child: const _ProtectedRenderPlaceholder(),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: _viewingConditionInvalid
+                        ? const _ViewingConditionInvalidState()
+                        : _captureDetected
+                        ? const _CaptureBlockedState()
+                        : const _ProtectedRenderPlaceholder(),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
-              const Text(
-                'Decrypted PDFs, images, and text content will render in the protected area when the secure content service is connected.',
+              Text(
+                _captureDetected
+                    ? 'Protected content will reappear automatically when screen capture stops.'
+                    : 'Decrypted PDFs, images, and text content will render in the protected area when the secure content service is connected.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 13,
                   height: 1.4,
                   color: AppTheme.textSecondary,
                 ),
               ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _viewingConditionInvalid
+                    ? null
+                    : _simulateSecurityViolation,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.warning,
+                  side: const BorderSide(color: Color(0xFFFCD34D)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                icon: const Icon(Icons.warning_amber_outlined),
+                label: const Text(
+                  'Demo: Simulate Security Violation',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ViewingConditionInvalidState extends StatelessWidget {
+  const _ViewingConditionInvalidState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      key: const ValueKey('viewing-condition-invalid'),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 76,
+              height: 76,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(
+                Icons.lock_clock_outlined,
+                color: AppTheme.warning,
+                size: 38,
+              ),
+            ),
+            const SizedBox(height: 22),
+            const Text(
+              'Viewing Ended',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'A required security condition is no longer satisfied. Protected content is being hidden and access will return to the secure viewer.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.5,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CaptureBlockedState extends StatelessWidget {
+  const _CaptureBlockedState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      key: const ValueKey('capture-blocked'),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 76,
+              height: 76,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(
+                Icons.visibility_off_outlined,
+                color: AppTheme.warning,
+                size: 38,
+              ),
+            ),
+            const SizedBox(height: 22),
+            const Text(
+              'Content Hidden',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Screen recording or screen sharing was detected. Aperture has temporarily hidden this protected content. Stop screen capture to continue viewing.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.5,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -99,6 +314,7 @@ class _ProtectedRenderPlaceholder extends StatelessWidget {
           children: [
             Expanded(
               child: Center(
+                key: const ValueKey('protected-render-placeholder'),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 360),
                   child: Column(
