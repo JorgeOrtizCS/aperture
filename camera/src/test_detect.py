@@ -91,6 +91,25 @@ try:
             log_writer.writerow([frame_number, datetime.now().isoformat(), False, "", "", f"{latency_ms:.2f}",
                                  RESIZE_TO is not None, 0, scenario, detect_size])
 
+        # --- Visual overlay: draw a box + label for every detection on the displayed frame. ---
+        # Detection coordinates come from detect_frame (which may be resized), so scale them
+        # back up to the original frame's size before drawing, otherwise boxes are offset/wrong-sized
+        # whenever RESIZE_TO is set.
+        sx = frame.shape[1] / detect_frame.shape[1]
+        sy = frame.shape[0] / detect_frame.shape[0]
+        for det in result.detections:
+            bbox = det.bounding_box
+            x1 = int(bbox.origin_x * sx)
+            y1 = int(bbox.origin_y * sy)
+            x2 = int((bbox.origin_x + bbox.width) * sx)
+            y2 = int((bbox.origin_y + bbox.height) * sy)
+            det_score = det.categories[0].score
+            det_name = det.categories[0].category_name
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            label = f"{det_name} {det_score:.2f}"
+            label_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
+            cv2.putText(frame, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
         # Show the active label on the feed window so you can see which scenario is being recorded.
         cv2.putText(frame, scenario, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         cv2.imshow('feed', frame)
