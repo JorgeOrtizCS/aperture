@@ -15,6 +15,14 @@ SCORE_THRESHOLD = 0.15
 # to resize before detection and compare latency against the baseline.
 RESIZE_TO = None # e.g. (320, 240) for a speed test run
 
+# Person detection gets its own, stricter threshold. Unlike phone (where real and
+# false detections overlap in score and threshold tuning alone can't separate them,
+# see Week 4 Task 4.3), weak person false positives (background objects, reflections)
+# tend to score much lower than real people in frame, so a higher bar filters them
+# out cleanly without the same tradeoff. Model-level SCORE_THRESHOLD above stays low
+# so phone detection isn't affected.
+PERSON_SCORE_THRESHOLD = 0.5
+
 # --- Scenario labels ---
 # Click the feed window, then press a number key to label everything that follows.
 # Press 0 while you reposition so setup time can be excluded from the analysis.
@@ -33,7 +41,7 @@ SCENARIOS = {
 scenario = 'transition'
 
 base_options = python.BaseOptions(model_asset_path='models/efficientdet_lite0.tflite')
-options = vision.ObjectDetectorOptions(base_options=base_options, score_threshold=SCORE_THRESHOLD, category_allowlist=['cell phone'])
+options = vision.ObjectDetectorOptions(base_options=base_options, score_threshold=SCORE_THRESHOLD, category_allowlist=['cell phone', 'person'])
 detector = vision.ObjectDetector.create_from_options(options)
 
 cap = cv2.VideoCapture(0)
@@ -48,7 +56,7 @@ log_path = f"logs/run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_thresh{SCORE_TH
 log_file = open(log_path, 'w', newline='')
 log_writer = csv.writer(log_file)
 log_writer.writerow(['frame_number', 'timestamp', 'detected', 'raw_score', 'avg_score', 'latency_ms', 'resized',
-                     'num_detections', 'scenario', 'detect_size'])
+                     'num_detections', 'scenario', 'detect_size', 'person_count'])
 
 frame_number = 0
 
@@ -76,20 +84,28 @@ try:
         result = detector.detect(mp_image)
         latency_ms = (time.time() - start) * 1000
 
-        if result.detections:
-            best = max(result.detections, key=lambda d: d.categories[0].score)
+        # Phone stats stay separate from person stats so the CSV's "detected"/"raw_score"/"avg_score"
+        # columns keep meaning exactly what they meant in Week 4 (phone confidence), now that
+        # the model is also returning person detections mixed into result.detections.
+        phone_dets = [d for d in result.detections if d.categories[0].category_name == 'cell phone']
+        person_dets = [d for d in result.detections if d.categories[0].category_name == 'person'
+                       and d.categories[0].score >= PERSON_SCORE_THRESHOLD]
+        person_count = len(person_dets)
+
+        if phone_dets:
+            best = max(phone_dets, key=lambda d: d.categories[0].score)
             score = best.categories[0].score
             recent_scores.append(score)
             if len(recent_scores) > BUFFER_SIZE:
                 recent_scores.pop(0)
             avg_score = sum(recent_scores) / len(recent_scores)
-            print(f"[{scenario}] {best.categories[0].category_name} raw={score:.3f} avg={avg_score:.3f} latency={latency_ms:.1f}ms")
+            print(f"[{scenario}] cell phone raw={score:.3f} avg={avg_score:.3f} persons={person_count} latency={latency_ms:.1f}ms")
             log_writer.writerow([frame_number, datetime.now().isoformat(), True, f"{score:.3f}", f"{avg_score:.3f}",
-                                 f"{latency_ms:.2f}", RESIZE_TO is not None, len(result.detections), scenario, detect_size])
+                                 f"{latency_ms:.2f}", RESIZE_TO is not None, len(phone_dets), scenario, detect_size, person_count])
         else:
-            print(f"[{scenario}] no detection latency={latency_ms:.1f}ms")
+            print(f"[{scenario}] no phone detection persons={person_count} latency={latency_ms:.1f}ms")
             log_writer.writerow([frame_number, datetime.now().isoformat(), False, "", "", f"{latency_ms:.2f}",
-                                 RESIZE_TO is not None, 0, scenario, detect_size])
+                                 RESIZE_TO is not None, 0, scenario, detect_size, person_count])
 
         # --- Visual overlay: draw a box + label for every detection on the displayed frame. ---
         # Detection coordinates come from detect_frame (which may be resized), so scale them
@@ -97,7 +113,7 @@ try:
         # whenever RESIZE_TO is set.
         sx = frame.shape[1] / detect_frame.shape[1]
         sy = frame.shape[0] / detect_frame.shape[0]
-        for det in result.detections:
+        for det in phone_dets + person_dets:
             bbox = det.bounding_box
             x1 = int(bbox.origin_x * sx)
             y1 = int(bbox.origin_y * sy)
@@ -105,10 +121,13 @@ try:
             y2 = int((bbox.origin_y + bbox.height) * sy)
             det_score = det.categories[0].score
             det_name = det.categories[0].category_name
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            # Phones in red (the thing we actually care about catching), people in blue,
+            # so it's obvious at a glance which is which on screen.
+            color = (0, 0, 255) if det_name == 'cell phone' else (255, 0, 0)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             label = f"{det_name} {det_score:.2f}"
             label_y = y1 - 10 if y1 - 10 > 10 else y1 + 20
-            cv2.putText(frame, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            cv2.putText(frame, label, (x1, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
         # Show the active label on the feed window so you can see which scenario is being recorded.
         cv2.putText(frame, scenario, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
