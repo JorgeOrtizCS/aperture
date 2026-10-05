@@ -40,12 +40,14 @@ namespace Aperture_WebAPI.SituationalAwareness
         // Denial reasons (as worded by ContentController, IpGeolocationService and LocationCheck) for
         // conditions that can become true again mid-session. Anything not listed ends the session,
         // so an unrecognised or reworded message fails safe. Expiry and revocation are deliberately
-        // absent: they can never recover.
+        // absent: they can never recover. "IP geolocation failed" (the lookup provider erroring or
+        // rate-limiting, e.g. HTTP 429) is also absent on purpose: it is not something the viewer can
+        // fix, and keeping the session open would re-call the provider on every poll, and failed
+        // lookups are not cached, which would make a rate limit worse.
         private static readonly string[] RecoverableReasonPrefixes =
         {
             "Client IP address changed",
             "Approved device required",
-            "IP geolocation failed",
             "Country restriction",
             "State/region restriction",
             "City restriction"
