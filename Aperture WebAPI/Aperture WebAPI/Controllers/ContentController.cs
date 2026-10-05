@@ -13,6 +13,7 @@ using Aperture_WebAPI.Filters;
 using Aperture_WebAPI.Infrastructure;
 using Aperture_WebAPI.Models;
 using Aperture_WebAPI.Services;
+using Aperture_WebAPI.SituationalAwareness;
 using Newtonsoft.Json;
 namespace Aperture_WebAPI.Controllers {
  [RoutePrefix("api/content"),TokenAuthorize]
@@ -120,7 +121,7 @@ namespace Aperture_WebAPI.Controllers {
     bool ipVerified=currentIp!=null && String.Equals(binding.IpAddress,currentIp,StringComparison.OrdinalIgnoreCase);
     var result=ipVerified ? Evaluate(db,tx,id,recipient,binding.DeviceKey,currentIp,true) : Deny("Client IP address changed during the viewing session.");
     result.SessionId=sessionId;RecordCheck(db,tx,sessionId,result.AccessGranted,ipVerified&&result.LocationVerified,result.DeviceVerified,result.AccessGranted?null:result.Message);
-    if(!result.AccessGranted){EndSession(db,tx,sessionId,"Revoked");SessionBinding old;SessionBindings.TryRemove(sessionId,out old);}
+    if(!result.AccessGranted && !SessionSuspension.KeepAlive(result.Message)){EndSession(db,tx,sessionId,"Revoked");SessionBinding old;SessionBindings.TryRemove(sessionId,out old);} // [Situational Awareness] suspend instead of end on a recoverable failure
     tx.Commit();return Ok(result);
    }catch{tx.Rollback();throw;}}}
   }
@@ -153,6 +154,7 @@ namespace Aperture_WebAPI.Controllers {
     else if(!r.IsDBNull(5) && now>=r.GetDateTime(5))reason="Access has expired.";
     else if(!existing && r.GetBoolean(6) && r.GetInt32(11)>=1)reason="Maximum views reached.";
     else if(r.GetBoolean(7) && r.GetInt32(10)==0)reason="Approved device required.";
+    else if(!r.IsDBNull(8) && LocationCheck.IsPrecisePolicy(r.GetString(8))) {var precise=LocationCheck.Evaluate(r.GetString(8),clientIp);locationVerified=precise.Passed;if(!precise.Passed)reason=precise.Reason;} // [Situational Awareness] precise GPS radius
     else if(!r.IsDBNull(8)) {
      LocationPolicy policy;
      try {policy=JsonConvert.DeserializeObject<LocationPolicy>(r.GetString(8));}

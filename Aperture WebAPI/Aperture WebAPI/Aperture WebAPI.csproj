@@ -132,6 +132,7 @@
     <Compile Include="Services\IpGeolocationService.cs" />
     <Compile Include="Services\PasswordService.cs" />
     <Compile Include="Services\TokenService.cs" />
+    <Compile Include="SituationalAwareness\*.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
