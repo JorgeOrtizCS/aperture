@@ -1,6 +1,7 @@
-using System.Data.SqlClient;
-using System.Web.Http;
+using Microsoft.Data.SqlClient;
+using Microsoft.AspNetCore.Mvc;
 using Aperture_WebAPI.Config;
+using Aperture_WebAPI.Controllers;
 using Aperture_WebAPI.Filters;
 using Aperture_WebAPI.Infrastructure;
 
@@ -18,11 +19,15 @@ namespace Aperture_WebAPI.SituationalAwareness
     /// country/region/city restriction set when the content is created. Replaces any existing
     /// location restriction on that content.
     /// </summary>
-    [RoutePrefix("api/situational"), TokenAuthorize]
-    public class LocationPolicyController : ApiController
+    [Route("api/situational"), TokenAuthorize]
+    public class LocationPolicyController : ApiControllerBase
     {
+        /// <summary>Restricts content to a precise point + radius (owner only), replacing any location restriction. Recipients must then send X-Client-Latitude/X-Client-Longitude.</summary>
+        /// <response code="200">Restriction saved.</response>
+        /// <response code="400">Latitude, longitude and radius are all required and must be valid.</response>
+        /// <response code="404">Not found, or not the owner.</response>
         [HttpPost, Route("content/{id:int}/location")]
-        public IHttpActionResult SetPreciseLocation(int id, PreciseLocationRequest request)
+        public IActionResult SetPreciseLocation(int id, [FromBody] PreciseLocationRequest request)
         {
             if (request == null || !request.Latitude.HasValue || !request.Longitude.HasValue || !request.RadiusMeters.HasValue)
             {

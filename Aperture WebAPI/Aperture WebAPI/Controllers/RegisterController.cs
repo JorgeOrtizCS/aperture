@@ -1,19 +1,23 @@
 using System;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using System.Net;
-using System.Web.Http;
+using Microsoft.AspNetCore.Mvc;
 using Aperture_WebAPI.Config;
 using Aperture_WebAPI.Models;
 using Aperture_WebAPI.Services;
 
 namespace Aperture_WebAPI.Controllers
 {
-    [RoutePrefix("api/register")]
-    public class RegisterController : ApiController
+    [Route("api/register")]
+    public class RegisterController : ApiControllerBase
     {
+        /// <summary>Creates an account. Password must be at least 8 characters; names and username at most 100.</summary>
+        /// <response code="200">Account created.</response>
+        /// <response code="400">Validation failed; Message says why.</response>
+        /// <response code="409">Username already exists.</response>
         [HttpPost]
         [Route("")]
-        public IHttpActionResult Register(RegisterRequest request)
+        public IActionResult Register([FromBody] RegisterRequest request)
         {
             if (request == null)
                 return BadRequest("Invalid request.");

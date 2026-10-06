@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Concurrent;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using Aperture_WebAPI.Config;
 using Aperture_WebAPI.Models;
 namespace Aperture_WebAPI.Services {
  public class AuthenticationService {
   // The approved eight-table schema has no token table. Session tokens live only
-  // in this IIS worker process and are lost on application restart/recycle.
+  // in this API process and are lost when it restarts.
   sealed class SessionToken {public int UserId;public DateTime ExpiresAt;}
   static readonly ConcurrentDictionary<string,SessionToken> Tokens=new ConcurrentDictionary<string,SessionToken>();
   public LoginResponse Login(LoginRequest request) {

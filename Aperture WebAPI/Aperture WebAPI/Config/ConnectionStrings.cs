@@ -1,5 +1,5 @@
-﻿using System.Configuration;
 using Aperture_WebAPI.Extensions;
+using Microsoft.Extensions.Configuration;
 
 namespace Aperture_WebAPI.Config
 {
@@ -12,7 +12,7 @@ namespace Aperture_WebAPI.Config
             {
                 if (string.IsNullOrEmpty(_database))
                 {
-                    _database = ConfigurationManager.ConnectionStrings["Database"].ToSafeString();
+                    _database = AppSettings.Configuration?.GetConnectionString("Database").ToSafeString();
                 }
 
                 return _database;

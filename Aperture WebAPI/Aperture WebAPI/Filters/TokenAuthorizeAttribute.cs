@@ -1,39 +1,28 @@
-﻿using System.Net;
-using System.Net.Http;
+using System;
+using System.Net;
 using System.Security.Principal;
-using System.Threading;
-using System.Web.Http;
-using System.Web.Http.Controllers;
 using Aperture_WebAPI.Infrastructure;
 using Aperture_WebAPI.Services;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace Aperture_WebAPI.Filters
 {
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
     public class TokenAuthorizeAttribute
-        : AuthorizeAttribute
+        : Attribute, IAuthorizationFilter
     {
-        protected override bool IsAuthorized(
-            HttpActionContext actionContext)
+        public void OnAuthorization(
+            AuthorizationFilterContext context)
         {
-            var authorization =
-                actionContext.Request
-                    .Headers.Authorization;
-
-            if (authorization == null)
-                return false;
-
-            if (!authorization.Scheme.Equals(
-                "Bearer",
-                System.StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
             string token =
-                authorization.Parameter;
+                BearerToken.From(context.HttpContext.Request);
 
             if (string.IsNullOrWhiteSpace(token))
-                return false;
+            {
+                HandleUnauthorizedRequest(context);
+                return;
+            }
 
             var service =
                 new AuthenticationService();
@@ -43,7 +32,10 @@ namespace Aperture_WebAPI.Filters
                 service.ValidateToken(token);
 
             if (user == null)
-                return false;
+            {
+                HandleUnauthorizedRequest(context);
+                return;
+            }
 
             // Save the authenticated user
             // for the remainder of this request.
@@ -54,32 +46,26 @@ namespace Aperture_WebAPI.Filters
                     user.Username,
                     "Bearer");
 
-            var principal =
+            context.HttpContext.User =
                 new GenericPrincipal(
                     identity,
                     null);
-
-            Thread.CurrentPrincipal =
-                principal;
-
-            actionContext.RequestContext.Principal =
-                principal;
-
-            return true;
         }
 
-        protected override void HandleUnauthorizedRequest(
-            HttpActionContext actionContext)
+        private static void HandleUnauthorizedRequest(
+            AuthorizationFilterContext context)
         {
-            actionContext.Response =
-                actionContext.Request.CreateResponse(
-                    HttpStatusCode.Unauthorized,
+            context.Result =
+                new ObjectResult(
                     new
                     {
                         success = false,
                         message =
                             "Authentication required."
-                    });
+                    })
+                {
+                    StatusCode = (int)HttpStatusCode.Unauthorized
+                };
         }
     }
 }

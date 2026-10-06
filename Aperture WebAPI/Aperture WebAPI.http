@@ -1,0 +1,121 @@
+# Manual API requests. Open in VS Code with the REST Client extension (humao.rest-client)
+# and click "Send Request" above each one. Run them top to bottom: later requests use the
+# tokens and ids returned by earlier ones.
+#
+# The plain-HTTP port avoids certificate prompts; https://localhost:44353 also works once the
+# dev certificate is trusted (dotnet dev-certs https --trust).
+
+@base = http://localhost:5080
+@sender = alice
+@recipient = bob
+@password = password123
+@deviceKey = 6f1c2b8e-3d4a-4f5b-9c6d-7e8f9a0b1c2d
+
+### Register the sender (409 if it already exists)
+POST {{base}}/api/register
+Content-Type: application/json
+
+{ "firstName": "Alice", "lastName": "Sender", "username": "{{sender}}", "password": "{{password}}" }
+
+### Register the recipient
+POST {{base}}/api/register
+Content-Type: application/json
+
+{ "firstName": "Bob", "lastName": "Recipient", "username": "{{recipient}}", "password": "{{password}}" }
+
+### Log in as the sender
+# @name senderLogin
+POST {{base}}/api/auth/login
+Content-Type: application/json
+
+{ "username": "{{sender}}", "password": "{{password}}" }
+
+### Log in as the recipient
+# @name recipientLogin
+POST {{base}}/api/auth/login
+Content-Type: application/json
+
+{ "username": "{{recipient}}", "password": "{{password}}" }
+
+### Who am I (sender)
+GET {{base}}/api/user/me
+Authorization: Bearer {{senderLogin.response.body.Token}}
+
+### Share text with the recipient
+# @name share
+POST {{base}}/api/content
+Authorization: Bearer {{senderLogin.response.body.Token}}
+Content-Type: application/json
+
+{ "title": "Hello", "body": "Secret text", "recipient": "{{recipient}}" }
+
+### Restrict it to a precise point + radius (Situational Awareness)
+POST {{base}}/api/situational/content/{{share.response.body.id}}/location
+Authorization: Bearer {{senderLogin.response.body.Token}}
+Content-Type: application/json
+
+{ "latitude": 26.3683, "longitude": -80.1029, "radiusMeters": 500 }
+
+### List content (recipient)
+GET {{base}}/api/content
+Authorization: Bearer {{recipientLogin.response.body.Token}}
+
+### Open a viewing session from inside the radius
+# @name session
+POST {{base}}/api/content/{{share.response.body.id}}/sessions
+Authorization: Bearer {{recipientLogin.response.body.Token}}
+Content-Type: application/json
+X-Client-Latitude: 26.3690
+X-Client-Longitude: -80.1035
+
+{ "deviceKey": "{{deviceKey}}" }
+
+### Periodic check from outside the radius: denied, but the session stays open (suspended)
+POST {{base}}/api/content/sessions/{{session.response.body.SessionId}}/check
+Authorization: Bearer {{recipientLogin.response.body.Token}}
+Content-Type: application/json
+X-Client-Latitude: 40.7128
+X-Client-Longitude: -74.0060
+
+{}
+
+### Periodic check back inside the radius: access restored
+POST {{base}}/api/content/sessions/{{session.response.body.SessionId}}/check
+Authorization: Bearer {{recipientLogin.response.body.Token}}
+Content-Type: application/json
+X-Client-Latitude: 26.3690
+X-Client-Longitude: -80.1035
+
+{}
+
+### End the session
+POST {{base}}/api/content/sessions/{{session.response.body.SessionId}}/end
+Authorization: Bearer {{recipientLogin.response.body.Token}}
+Content-Type: application/json
+
+{}
+
+### Register this device (starts untrusted)
+POST {{base}}/api/devices
+Authorization: Bearer {{recipientLogin.response.body.Token}}
+Content-Type: application/json
+
+{ "deviceKey": "{{deviceKey}}", "deviceName": "dev-mac" }
+
+### Pause the content (sender)
+POST {{base}}/api/content/{{share.response.body.id}}/policy
+Authorization: Bearer {{senderLogin.response.body.Token}}
+Content-Type: application/json
+
+{ "status": "Paused" }
+
+### Revoke the recipient's access (sender)
+POST {{base}}/api/content/{{share.response.body.id}}/revoke
+Authorization: Bearer {{senderLogin.response.body.Token}}
+Content-Type: application/json
+
+{}
+
+### Log out (sender)
+POST {{base}}/api/auth/logout
+Authorization: Bearer {{senderLogin.response.body.Token}}

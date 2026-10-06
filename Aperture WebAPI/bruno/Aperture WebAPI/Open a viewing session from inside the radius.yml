@@ -1,0 +1,53 @@
+info:
+  name: Open a viewing session from inside the radius
+  type: http
+  seq: 11
+
+http:
+  method: POST
+  url: "{{base}}/api/content/{{contentId}}/sessions"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-Client-Latitude
+      value: "26.3690"
+    - name: X-Client-Longitude
+      value: "-80.1035"
+  body:
+    type: json
+    data: '{ "deviceKey": "{{deviceKey}}" }'
+  auth:
+    type: bearer
+    token: "{{recipientToken}}"
+
+runtime:
+  variables:
+    - name: contentId
+      value: "28"
+  scripts:
+    - type: before-request
+      code: |-
+        // Log in first so this request works on its own: tokens live only in the
+        // API's memory and stop working when it restarts.
+        const login = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{recipient}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("recipientToken", login.data.Token);
+    - type: after-response
+      code: |-
+        test("status is 200", () => expect(res.getStatus()).to.be.oneOf([200]));
+        if (res.getStatus() === 200) bru.setVar("sessionId", res.getBody().SessionId);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Sends the recipient's GPS fix in headers. Saves the session id to {{sessionId}}.

@@ -10,7 +10,8 @@ access is restricted.
 
 ## Structure
 - `/mobile` — Flutter app (Android + iOS): sending/viewing UI, camera/GPS/biometric checks
-- `/api` — .NET Framework 4.7.2 communication API: handles requests between mobile clients and backend
+- `/Aperture WebAPI` — ASP.NET Core (.NET 8) communication API: handles requests between clients and backend (see its README to run it)
+- `/Aperture Desktop Client` — Windows Forms desktop client (.NET Framework 4.7.2, Windows only)
 - `/db` — MySQL schema and migrations: user requirements, shared files, session data
 - `/docs` — SRS, project summaries, meeting notes
 

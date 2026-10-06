@@ -1,0 +1,86 @@
+info:
+  name: Suspend a viewing session (sender)
+  type: http
+  seq: 12
+
+http:
+  method: POST
+  url: "{{base}}/api/situational/sessions/{{sessionId}}/suspend"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: '{ "reason": "Someone else is in the room", "durationSeconds": 30 }'
+  auth:
+    type: bearer
+    token: "{{senderToken}}"
+
+runtime:
+  variables:
+    - name: suspendSessionId
+      value: "31"
+    - name: sessionId
+      value: "38"
+  scripts:
+    - type: before-request
+      code: |-
+        // Log in first so this request works on its own: tokens live only in the
+        // API's memory and stop working when it restarts.
+        const login = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{sender}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("senderToken", login.data.Token);
+
+        // Suspension applies to an open viewing session, so open one as the recipient first.
+        const recipientLogin = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{recipient}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("recipientToken", recipientLogin.data.Token);
+        let session;
+        try {
+          session = await bru.sendRequest({
+            method: "POST",
+            url: bru.interpolate("{{base}}/api/content/{{contentId}}/sessions"),
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer " + recipientLogin.data.Token,
+              "X-Client-Latitude": "26.3690",
+              "X-Client-Longitude": "-80.1035"
+            },
+            data: { deviceKey: bru.interpolate("{{deviceKey}}") }
+          });
+        } catch (error) {
+          const status = error.response ? error.response.status : "no response";
+          const reason = error.response && error.response.data && error.response.data.Message ? ": " + error.response.data.Message : "";
+          throw new Error("Could not open a viewing session for content " + bru.interpolate("{{contentId}}") + " (" + status + reason + "). "
+            + "Run \"Share text with the recipient\" first; content that was revoked, paused or is outside its time window cannot be opened.");
+        }
+        bru.setVar("suspendSessionId", session.data.SessionId);
+    - type: after-response
+      code: |-
+        test("status is 200", () => expect(res.getStatus()).to.be.oneOf([200]));
+        test("session is suspended", () => {
+          expect(res.getBody().Suspended).to.equal(true);
+          expect(res.getBody().Source).to.equal("manual");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: "Situational Awareness: opens a viewing session as the recipient (pre-request script), then suspends it for 30 seconds. Checks during that time withhold the content but keep the session open; the next check that passes every condition afterwards lifts the suspension."

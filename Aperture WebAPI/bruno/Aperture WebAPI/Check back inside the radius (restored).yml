@@ -1,0 +1,49 @@
+info:
+  name: Check back inside the radius (restored)
+  type: http
+  seq: 15
+
+http:
+  method: POST
+  url: "{{base}}/api/content/sessions/{{sessionId}}/check"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-Client-Latitude
+      value: "26.3690"
+    - name: X-Client-Longitude
+      value: "-80.1035"
+  body:
+    type: json
+    data: "{}"
+  auth:
+    type: bearer
+    token: "{{recipientToken}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        // Log in first so this request works on its own: tokens live only in the
+        // API's memory and stop working when it restarts.
+        const login = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{recipient}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("recipientToken", login.data.Token);
+    - type: after-response
+      code: test("status is 200", () => expect(res.getStatus()).to.be.oneOf([200]));
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true
+
+docs: Returns AccessGranted=true and the content again.

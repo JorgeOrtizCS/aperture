@@ -1,0 +1,60 @@
+# Local development database for the Web API: SQL Server 2022 in Docker.
+#   docker compose up -d      start (first run also creates ApertureDB from Aperture_Diagram_Database.sql)
+#   docker compose down       stop (data is kept in the aperture-sql volume)
+#   docker compose down -v    stop and delete all data
+#
+# The image is x86-64 only; on Apple Silicon Docker Desktop runs it through Rosetta.
+# The sa password is a local-development default and must match appsettings.Development.json.
+# Port 1433 is bound to 127.0.0.1 only, so the database is not reachable from the network.
+
+x-sa-password: &sa-password "${APERTURE_SA_PASSWORD:-Aperture_Dev_2026!}"
+
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: *sa-password
+    ports:
+      - "127.0.0.1:1433:1433"
+    volumes:
+      - aperture-sql:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  # One-shot: runs the schema script unless ApertureDB.dbo.Users already exists
+  # (the script itself refuses to run twice).
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: *sa-password
+    volumes:
+      - ./Aperture_Diagram_Database.sql:/schema/Aperture_Diagram_Database.sql:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        sql="/opt/mssql-tools18/bin/sqlcmd -C -S db -U sa -P $$MSSQL_SA_PASSWORD -b"
+        exists=$$($$sql -h -1 -W -Q "SET NOCOUNT ON; SELECT CASE WHEN OBJECT_ID(N'ApertureDB.dbo.Users', N'U') IS NULL THEN 0 ELSE 1 END")
+        if [ "$$exists" = "1" ]; then
+          echo "ApertureDB schema already exists; nothing to do."
+        else
+          echo "Creating ApertureDB schema..."
+          $$sql -i /schema/Aperture_Diagram_Database.sql
+          echo "ApertureDB schema created."
+        fi
+    restart: "no"
+
+volumes:
+  aperture-sql:

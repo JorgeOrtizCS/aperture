@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "Aperture WebAPI": {
+      "commandName": "Project",
+      "applicationUrl": "https://localhost:44353;http://localhost:5080",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+info:
+  name: Register this device (starts untrusted)
+  type: http
+  seq: 17
+
+http:
+  method: POST
+  url: "{{base}}/api/devices"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: '{ "deviceKey": "{{deviceKey}}", "deviceName": "dev-mac" }'
+  auth:
+    type: bearer
+    token: "{{recipientToken}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        // Log in first so this request works on its own: tokens live only in the
+        // API's memory and stop working when it restarts.
+        const login = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{recipient}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("recipientToken", login.data.Token);
+    - type: after-response
+      code: test("status is 200 or 409", () => expect(res.getStatus()).to.be.oneOf([200, 409]));
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true
+
+docs: Registers the device key; approval happens in SQL. 409 if another user already registered this key, which happens on reruns with new usernames.

@@ -1,5 +1,5 @@
 using System;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using Aperture_WebAPI.Config;
 using Aperture_WebAPI.Models;
 namespace Aperture_WebAPI.Repositories {

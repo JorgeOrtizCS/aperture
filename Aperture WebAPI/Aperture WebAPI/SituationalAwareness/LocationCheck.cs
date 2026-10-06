@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
-using System.Web;
+using Aperture_WebAPI.Infrastructure;
+using Microsoft.AspNetCore.Http;
 using Aperture_WebAPI.Services;
 using Newtonsoft.Json;
 
@@ -110,7 +111,7 @@ namespace Aperture_WebAPI.SituationalAwareness
 
             double? latitude = null;
             double? longitude = null;
-            HttpContext context = HttpContext.Current;
+            HttpContext context = CurrentHttpContext.Current;
             if (context != null)
             {
                 latitude = ParseHeader(context.Request.Headers["X-Client-Latitude"]);

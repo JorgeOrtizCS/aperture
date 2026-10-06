@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Concurrent;
-using System.Configuration;
+using Aperture_WebAPI.Config;
 using System.Net;
 using System.Net.Http;
 using Newtonsoft.Json;
@@ -41,7 +41,7 @@ namespace Aperture_WebAPI.Services {
    string cacheKey=LookupOwnPublicIp(ipAddress)?"server-public-ip":ipAddress;
    CachedLocation cached;
    if(Cache.TryGetValue(cacheKey,out cached)&&cached.ExpiresAt>DateTime.UtcNow){location=cached.Value;error=null;return true;}
-   string template=ConfigurationManager.AppSettings["IpGeolocationUrl"];
+   string template=AppSettings.Get("IpGeolocationUrl");
    if(String.IsNullOrWhiteSpace(template))template="https://ipapi.co/{0}/json/";
    string segment=LookupOwnPublicIp(ipAddress)?String.Empty:Uri.EscapeDataString(ipAddress);
    string url=String.IsNullOrEmpty(segment)?template.Replace("{0}/",String.Empty):String.Format(template,segment);
