@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Aperture_Desktop_Client;
 using Aperture_Desktop_Client.Models;
 using Aperture_Desktop_Client.Services;
 namespace Aperture_Desktop.Forms {
@@ -65,7 +66,9 @@ namespace Aperture_Desktop.Forms {
     var picture=new PictureBox {Dock=DockStyle.Fill,SizeMode=PictureBoxSizeMode.Zoom,Visible=false};
     Action<SessionResult> display=result=>{if(result.FileType=="image/png" || result.FileType=="image/jpeg") {var bytes=Convert.FromBase64String(result.FileDataBase64);using(var stream=new MemoryStream(bytes))using(var original=Image.FromStream(stream)){var previous=picture.Image;picture.Image=new Bitmap(original);if(previous!=null)previous.Dispose();}text.Visible=false;picture.Visible=true;picture.BringToFront();}else{picture.Visible=false;text.Visible=true;text.Text=result.Body;}};
     viewer.Controls.Add(text);viewer.Controls.Add(picture);viewer.Controls.Add(badge);viewer.Controls.Add(heading);display(opened);
-    var timer=new Timer {Interval=5000};bool checking=false;timer.Tick+=async (s,e)=>{if(checking||viewer.IsDisposed)return;checking=true;timer.Stop();try{var result=await auth.ApiClient.PostAsync<object,SessionResult>("api/content/sessions/"+sessionId+"/check",new object());if(viewer.IsDisposed)return;if(!result.AccessGranted){text.Clear();picture.Image=null;picture.Visible=false;badge.Text="Access revoked: "+result.Message;badge.ForeColor=Color.Firebrick;viewer.Close();return;}display(result);badge.Text="Access granted · Verified "+DateTime.Now.ToLongTimeString();}catch(Exception){if(!viewer.IsDisposed){text.Clear();picture.Image=null;picture.Visible=false;badge.Text="Access paused: unable to verify with server";badge.ForeColor=Color.Firebrick;viewer.Close();}}finally{checking=false;if(!viewer.IsDisposed)timer.Start();}};
+    // Camera detection (Jorge, Week 6 Task 6.1): covers the content while a phone camera is in view.
+    CameraGuard guard=null;viewer.Shown+=(s,e)=>guard=CameraGuard.Attach(viewer,badge,ink);
+    var timer=new Timer {Interval=5000};bool checking=false;timer.Tick+=async (s,e)=>{if(checking||viewer.IsDisposed)return;checking=true;timer.Stop();try{var result=await auth.ApiClient.PostAsync<object,SessionResult>("api/content/sessions/"+sessionId+"/check",new object());if(viewer.IsDisposed)return;if(!result.AccessGranted){text.Clear();picture.Image=null;picture.Visible=false;badge.Text="Access revoked: "+result.Message;badge.ForeColor=Color.Firebrick;viewer.Close();return;}display(result);if(guard!=null&&guard.Blocked){guard.KeepOnTop();}else{badge.Text="Access granted · Verified "+DateTime.Now.ToLongTimeString();badge.ForeColor=ink;}}catch(Exception){if(!viewer.IsDisposed){text.Clear();picture.Image=null;picture.Visible=false;badge.Text="Access paused: unable to verify with server";badge.ForeColor=Color.Firebrick;viewer.Close();}}finally{checking=false;if(!viewer.IsDisposed)timer.Start();}};
     viewer.FormClosed+=(s,e)=>timer.Dispose();timer.Start();viewer.ShowDialog(this);
    }
    try{await auth.ApiClient.PostAsync("api/content/sessions/"+sessionId+"/end");}catch{ /* Server closes a failed check; abandoned sessions can be expired by maintenance. */ }
