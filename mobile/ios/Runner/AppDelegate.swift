@@ -30,9 +30,12 @@ private final class ScreenCaptureProtectionBridge: NSObject, FlutterStreamHandle
   private var eventChannel: FlutterEventChannel?
   private var eventSink: FlutterEventSink?
   private weak var flutterViewController: UIViewController?
+  private weak var flutterWindowScene: UIWindowScene?
+  private weak var observedCaptureScene: UIWindowScene?
+  private var captureStateTraitRegistration: Any?
   private var protectionEnabled = false
-  private var traitObserverRegistered = false
   private var legacyObserverRegistered = false
+  private var screenshotObserverRegistered = false
 
   @MainActor
   func register(with messenger: FlutterBinaryMessenger) {
@@ -72,18 +75,27 @@ private final class ScreenCaptureProtectionBridge: NSObject, FlutterStreamHandle
   }
 
   @MainActor
-  private func enableProtection() -> Bool {
+  private func enableProtection() -> Any {
     protectionEnabled = true
+    debugLog("protection enabled")
+    registerScreenshotObserverIfNeeded()
     attachFlutterViewControllerIfAvailable()
-    let captureActive = currentCaptureState()
-    publish(captureActive)
+    guard let captureActive = currentCaptureState() else {
+      return FlutterError(
+        code: "capture_state_unavailable",
+        message: "The Flutter scene capture state could not be confirmed.",
+        details: nil
+      )
+    }
+    publishCaptureState(captureActive)
     return captureActive
   }
 
   @MainActor
   private func disableProtection() {
     protectionEnabled = false
-    publish(false)
+    removeScreenshotObserverIfNeeded()
+    publishCaptureState(false)
   }
 
   func onListen(
@@ -93,7 +105,9 @@ private final class ScreenCaptureProtectionBridge: NSObject, FlutterStreamHandle
     Task { @MainActor in
       self.eventSink = events
       self.attachFlutterViewControllerIfAvailable()
-      events(self.protectionEnabled ? self.currentCaptureState() : false)
+      self.publishCaptureState(
+        self.protectionEnabled ? self.currentCaptureState() : false
+      )
     }
     return nil
   }
@@ -107,27 +121,58 @@ private final class ScreenCaptureProtectionBridge: NSObject, FlutterStreamHandle
 
   @MainActor
   private func attachFlutterViewControllerIfAvailable() {
-    guard flutterViewController == nil else {
+    if let controller = flutterViewController,
+       let windowScene = controller.view.window?.windowScene ?? flutterWindowScene {
+      flutterWindowScene = windowScene
+      registerCaptureStateObserver(for: windowScene)
       return
     }
 
     let windowScenes = UIApplication.shared.connectedScenes.compactMap {
       $0 as? UIWindowScene
+    }.sorted { lhs, rhs in
+      activationPriority(lhs.activationState) < activationPriority(rhs.activationState)
     }
 
     for windowScene in windowScenes {
-      for window in windowScene.windows where window.rootViewController != nil {
+      let windows = windowScene.windows.sorted { lhs, rhs in
+        lhs.isKeyWindow && !rhs.isKeyWindow
+      }
+
+      for window in windows where window.rootViewController != nil {
         if let controller = findFlutterViewController(
           from: window.rootViewController
         ) {
           flutterViewController = controller
-          registerCaptureStateObserver(for: controller)
+          flutterWindowScene = controller.view.window?.windowScene ?? windowScene
+          if let flutterWindowScene {
+            debugLog(
+              "capture monitoring found Flutter scene state=\(captureStateDescription(flutterWindowScene))"
+            )
+            registerCaptureStateObserver(for: flutterWindowScene)
+          }
           return
         }
       }
     }
 
     registerLegacyCaptureStateObserverIfNeeded()
+  }
+
+  private func activationPriority(_ activationState: UIScene.ActivationState)
+    -> Int {
+    switch activationState {
+    case .foregroundActive:
+      return 0
+    case .foregroundInactive:
+      return 1
+    case .background:
+      return 2
+    case .unattached:
+      return 3
+    @unknown default:
+      return 4
+    }
   }
 
   @MainActor
@@ -171,19 +216,27 @@ private final class ScreenCaptureProtectionBridge: NSObject, FlutterStreamHandle
   }
 
   @MainActor
-  private func registerCaptureStateObserver(for controller: UIViewController) {
+  private func registerCaptureStateObserver(for windowScene: UIWindowScene) {
     if #available(iOS 17.0, *) {
-      guard !traitObserverRegistered else {
+      guard observedCaptureScene !== windowScene else {
         return
       }
 
-      traitObserverRegistered = true
-      controller.registerForTraitChanges([UITraitSceneCaptureState.self]) {
-        [weak self] (_: UIViewController, _: UITraitCollection) in
+      observedCaptureScene = windowScene
+      captureStateTraitRegistration = windowScene.registerForTraitChanges(
+        [UITraitSceneCaptureState.self]
+      ) {
+        [weak self] (scene: UIWindowScene, _: UITraitCollection) in
         Task { @MainActor in
+          self?.debugLog(
+            "scene capture state changed to \(self?.captureStateDescription(scene) ?? "unknown")"
+          )
           self?.publishCurrentCaptureState()
         }
       }
+      debugLog(
+        "capture monitoring registered for Flutter UIWindowScene state=\(captureStateDescription(windowScene))"
+      )
     } else {
       registerLegacyCaptureStateObserverIfNeeded()
     }
@@ -206,11 +259,54 @@ private final class ScreenCaptureProtectionBridge: NSObject, FlutterStreamHandle
       name: UIScreen.capturedDidChangeNotification,
       object: nil
     )
+    debugLog("legacy UIScreen.isCaptured monitoring registered")
   }
 
   @objc private func legacyCaptureStateChanged() {
     Task { @MainActor in
+      self.debugLog("legacy screen capture state changed")
       self.publishCurrentCaptureState()
+    }
+  }
+
+  @MainActor
+  private func registerScreenshotObserverIfNeeded() {
+    guard !screenshotObserverRegistered else {
+      return
+    }
+
+    screenshotObserverRegistered = true
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(userDidTakeScreenshot),
+      name: UIApplication.userDidTakeScreenshotNotification,
+      object: nil
+    )
+    debugLog("screenshot monitoring registered")
+  }
+
+  @MainActor
+  private func removeScreenshotObserverIfNeeded() {
+    guard screenshotObserverRegistered else {
+      return
+    }
+
+    screenshotObserverRegistered = false
+    NotificationCenter.default.removeObserver(
+      self,
+      name: UIApplication.userDidTakeScreenshotNotification,
+      object: nil
+    )
+  }
+
+  @objc private func userDidTakeScreenshot() {
+    Task { @MainActor in
+      guard self.protectionEnabled else {
+        return
+      }
+
+      self.debugLog("screenshot detected while protection active")
+      self.publishScreenshotViolation()
     }
   }
 
@@ -220,27 +316,81 @@ private final class ScreenCaptureProtectionBridge: NSObject, FlutterStreamHandle
       return
     }
 
-    publish(currentCaptureState())
+    publishCaptureState(currentCaptureState())
   }
 
   @MainActor
-  private func publish(_ captureActive: Bool) {
-    eventSink?(captureActive)
+  private func publishCaptureState(_ captureActive: Bool?) {
+    guard let captureActive else {
+      eventSink?(FlutterError(
+        code: "capture_state_unavailable",
+        message: "The Flutter scene capture state could not be confirmed.",
+        details: nil
+      ))
+      return
+    }
+    debugLog("event sent to Flutter captureActive=\(captureActive)")
+    eventSink?([
+      "type": "capture",
+      "active": captureActive,
+    ])
   }
 
   @MainActor
-  private func currentCaptureState() -> Bool {
+  private func publishScreenshotViolation() {
+    debugLog("event sent to Flutter screenshot violation")
+    eventSink?([
+      "type": "screenshot",
+    ])
+  }
+
+  @MainActor
+  private func currentCaptureState() -> Bool? {
     attachFlutterViewControllerIfAvailable()
 
     if #available(iOS 17.0, *),
-       let flutterViewController {
-      return flutterViewController.traitCollection.sceneCaptureState == .active
+       let flutterWindowScene {
+      let captureState = flutterWindowScene.traitCollection.sceneCaptureState
+      guard captureState == .active || captureState == .inactive else {
+        return nil
+      }
+      let captureActive = captureState == .active
+      debugLog(
+        "evaluated scene capture state=\(captureStateDescription(flutterWindowScene))"
+      )
+      return captureActive
     }
 
     if #unavailable(iOS 17.0) {
-      return UIScreen.main.isCaptured
+      let captureActive = UIScreen.main.isCaptured
+      debugLog("evaluated UIScreen.isCaptured=\(captureActive)")
+      return captureActive
     }
 
-    return false
+    return nil
+  }
+
+  @MainActor
+  private func captureStateDescription(_ windowScene: UIWindowScene) -> String {
+    if #available(iOS 17.0, *) {
+      switch windowScene.traitCollection.sceneCaptureState {
+      case .active:
+        return "active"
+      case .inactive:
+        return "inactive"
+      case .unspecified:
+        return "unspecified"
+      @unknown default:
+        return "unknown"
+      }
+    }
+
+    return "legacy"
+  }
+
+  private func debugLog(_ message: String) {
+    #if DEBUG
+      NSLog("[ApertureCapture] \(message)")
+    #endif
   }
 }
