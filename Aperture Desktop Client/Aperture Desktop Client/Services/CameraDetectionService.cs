@@ -11,11 +11,11 @@ namespace Aperture_Desktop_Client.Services
     /// </summary>
     public class CameraDetectionResult
     {
-        [JsonProperty("phone_detected")] public bool PhoneDetected { get; set; }
-        [JsonProperty("phone_confidence")] public double PhoneConfidence { get; set; }
-        [JsonProperty("person_count")] public int PersonCount { get; set; }
-        [JsonProperty("latency_ms")] public double LatencyMs { get; set; }
-        [JsonProperty("timestamp")] public string Timestamp { get; set; }
+        [JsonProperty("phone_detected", Required = Required.Always)] public bool PhoneDetected { get; set; }
+        [JsonProperty("phone_confidence", Required = Required.Always)] public double PhoneConfidence { get; set; }
+        [JsonProperty("person_count", Required = Required.Always)] public int PersonCount { get; set; }
+        [JsonProperty("latency_ms", Required = Required.Always)] public double LatencyMs { get; set; }
+        [JsonProperty("timestamp", Required = Required.Always)] public string Timestamp { get; set; }
     }
 
     /// <summary>
@@ -79,7 +79,7 @@ namespace Aperture_Desktop_Client.Services
             }
             catch (Exception ex)
             {
-                process = null;
+                Stop();
                 Failed?.Invoke("Could not start camera detector: " + ex.Message);
             }
         }
@@ -90,7 +90,10 @@ namespace Aperture_Desktop_Client.Services
             try
             {
                 var result = JsonConvert.DeserializeObject<CameraDetectionResult>(line);
-                if (result != null) ResultReceived?.Invoke(result);
+                if (!stopping && result != null && result.PersonCount >= 0 &&
+                    result.PhoneConfidence >= 0 && result.PhoneConfidence <= 1 &&
+                    result.LatencyMs >= 0 && !string.IsNullOrWhiteSpace(result.Timestamp))
+                    ResultReceived?.Invoke(result);
             }
             catch (JsonException)
             {

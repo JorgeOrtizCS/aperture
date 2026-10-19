@@ -5,144 +5,159 @@ using Aperture_Desktop_Client.Services;
 
 namespace Aperture_Desktop_Client
 {
-    /// <summary>
-    /// Puts camera detection on any content viewer window (Jorge, Week 6 Task 6.1).
-    ///
-    /// While the viewer is open it runs the camera detector. When a phone shows up, a cover
-    /// goes over the content right away and the status label turns red. The content only
-    /// comes back after CLEAR_FRAMES frames in a row with no phone, so one clean frame
-    /// can't flash it back. The detector stops when the viewer closes.
-    ///
-    /// Usage, inside a viewer form:
-    ///     var guard = CameraGuard.Attach(viewer, statusLabel, normalTextColor);
-    ///     ...
-    ///     if (guard.Blocked) guard.KeepOnTop();   // after anything redraws the content
-    /// </summary>
     public sealed class CameraGuard
     {
-        const int CLEAR_FRAMES = 10;
-
+        const int ClearFrames = 10;
         readonly Form viewer;
         readonly Label status;
         readonly Color normalColor;
         readonly Label cover;
         readonly CameraDetectionService camera = new CameraDetectionService();
+        readonly Timer watchdog = new Timer { Interval = 500 };
+        DateTime lastFrame = DateTime.UtcNow;
         int clearStreak;
-
-        public bool Blocked { get; private set; }
+        string cameraReason = "Starting camera detection...";
+        string policyReason;
+        Control protectedContent;
+        CameraRestrictions restrictions = new CameraRestrictions();
+        public bool Blocked => cameraReason != null || policyReason != null;
 
         CameraGuard(Form viewer, Label status, Color normalColor)
         {
             this.viewer = viewer;
             this.status = status;
             this.normalColor = normalColor;
-
-            cover = new Label
-            {
-                Dock = DockStyle.Fill,
-                Text = "Phone camera detected\nContent hidden until it's gone",
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Segoe UI", 14, FontStyle.Bold),
-                ForeColor = Color.White,
-                BackColor = Color.FromArgb(20, 20, 20),
-                Visible = false
+            cover = new Label {
+                Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", 14, FontStyle.Bold), ForeColor = Color.White,
+                BackColor = Color.FromArgb(20, 20, 20)
             };
             viewer.Controls.Add(cover);
-
-            camera.ResultReceived += r => OnUi(() => Handle(r));
-            camera.Failed += msg => OnUi(() =>
-            {
-                status.Text = "Camera detection unavailable: " + msg;
-                status.ForeColor = Color.DarkOrange;
+            camera.ResultReceived += result => OnUi(() => Handle(result));
+            camera.Failed += message => OnUi(() => {
+                if (!restrictions.Enabled) return;
+                clearStreak = 0;
+                cameraReason = "Camera detection unavailable: " + message;
+                Render();
             });
-            viewer.FormClosed += (s, e) => camera.Dispose();
+            watchdog.Tick += (s, e) => {
+                if (restrictions.Enabled && (DateTime.UtcNow - lastFrame).TotalSeconds > 5) {
+                    clearStreak = 0;
+                    cameraReason = "Camera detection unavailable: no recent frames";
+                    Render();
+                }
+            };
+            viewer.FormClosed += (s, e) => { watchdog.Dispose(); camera.Dispose(); };
+            Render();
         }
 
-        public static CameraGuard Attach(Form viewer, Label status, Color normalColor)
+        public static CameraGuard Attach(Form viewer, Label status, Color normalColor, CameraRestrictions restrictions = null)
         {
             var guard = new CameraGuard(viewer, status, normalColor);
-            guard.camera.Start();
+            guard.restrictions = restrictions ?? new CameraRestrictions();
+            if (guard.restrictions.Enabled) {
+                guard.watchdog.Start();
+                guard.camera.Start();
+            } else {
+                guard.cameraReason = null;
+            }
+            guard.Render();
             return guard;
         }
 
-        /// <summary>Call after the viewer redraws its content so the cover stays on top.</summary>
-        public void KeepOnTop()
+        public void SetPolicyStatus(bool granted, string message)
         {
-            if (Blocked) cover.BringToFront();
+            policyReason = granted ? null : (string.IsNullOrWhiteSpace(message) ? "Viewing restrictions are not satisfied." : message);
+            Render();
         }
 
-        void Handle(CameraDetectionResult r)
+        // Only call with the authoritative policy from a session response.
+        public void ApplyRestrictions(CameraRestrictions policy)
         {
-            if (r.PhoneDetected)
-            {
+            if (policy == null) throw new ArgumentNullException(nameof(policy));
+            if (restrictions.SameAs(policy)) return;
+            policyReason = "Verifying viewing restrictions...";
+            camera.Stop();
+            watchdog.Stop();
+            restrictions = policy;
+            clearStreak = 0;
+            lastFrame = DateTime.UtcNow;
+            cameraReason = policy.Enabled ? "Starting camera detection..." : null;
+            Render();
+            if (policy.Enabled) {
+                watchdog.Start();
+                camera.Start();
+            }
+        }
+
+        public void KeepOnTop() { Render(); }
+
+        public void Protect(Control content)
+        {
+            protectedContent = content;
+            Render();
+        }
+
+        void Render()
+        {
+            if (protectedContent != null) {
+                protectedContent.Visible = !Blocked;
+                protectedContent.Enabled = !Blocked;
+            }
+            cover.Visible = Blocked;
+            if (Blocked) {
+                cover.Text = "Content hidden" + Environment.NewLine + (policyReason ?? cameraReason);
+                cover.BringToFront();
+            }
+            status.Text = Blocked ? "Content hidden: " + (policyReason ?? cameraReason) :
+                (restrictions.Enabled ? "Access granted - camera clear" : "Access granted - camera detection off");
+            status.ForeColor = Blocked ? Color.Firebrick : normalColor;
+        }
+
+        void Handle(CameraDetectionResult result)
+        {
+            if (!restrictions.Enabled) return;
+            lastFrame = DateTime.UtcNow;
+            string reason = null;
+            if (restrictions.BlockPhones && result.PhoneDetected)
+                reason = "Phone detected. Remove it to resume viewing.";
+            else if (restrictions.BlockMultiplePeople && result.PersonCount > 1)
+                reason = "Multiple people detected. View this content alone.";
+            else if (restrictions.RequireViewer && result.PersonCount == 0)
+                reason = "No viewer detected. Return to the camera to resume viewing.";
+            if (reason != null) {
                 clearStreak = 0;
-                if (!Blocked)
-                {
-                    Blocked = true;
-                    cover.Visible = true;
-                    cover.BringToFront();
-                }
-                status.Text = "Phone camera detected · content hidden (confidence "
-                              + r.PhoneConfidence.ToString("0.00") + ", " + r.LatencyMs.ToString("0") + " ms)";
-                status.ForeColor = Color.Firebrick;
+                cameraReason = reason;
             }
-            else if (Blocked && ++clearStreak >= CLEAR_FRAMES)
-            {
-                Blocked = false;
-                cover.Visible = false;
-                status.Text = "Camera clear · content visible";
-                status.ForeColor = normalColor;
+            else if (++clearStreak >= ClearFrames) {
+                clearStreak = ClearFrames;
+                cameraReason = null;
             }
+            Render();
         }
 
-        // Detector results arrive on a background thread, WinForms controls have to be
-        // touched on the UI thread.
         void OnUi(Action action)
         {
             if (viewer.IsDisposed || !viewer.IsHandleCreated) return;
-            try { viewer.BeginInvoke(action); }
-            catch (InvalidOperationException) { /* viewer closing */ }
+            try { viewer.BeginInvoke(new Action(() => { if (!viewer.IsDisposed) action(); })); }
+            catch (InvalidOperationException) { }
         }
     }
 
-    /// <summary>
-    /// Stand-alone test window for the camera guard. Run the client with --camera-test
-    /// to open it without logging in or running the Web API.
-    /// </summary>
     public sealed class CameraTestForm : Form
     {
         public CameraTestForm()
         {
-            Text = "Aperture · Camera detection test";
+            Text = "Aperture - Camera detection test";
             Size = new Size(690, 570);
             StartPosition = FormStartPosition.CenterScreen;
-            BackColor = Color.White;
-
-            var ink = Color.FromArgb(42, 53, 69);
-            var heading = new Label
-            {
-                Text = "Sample protected content", Dock = DockStyle.Top, Height = 60,
-                Font = new Font("Segoe UI", 18, FontStyle.Bold), ForeColor = ink, Padding = new Padding(20, 12, 0, 0)
-            };
-            var status = new Label
-            {
-                Text = "Starting camera detection...", Dock = DockStyle.Bottom, Height = 48,
-                Font = new Font("Segoe UI", 10), ForeColor = ink, Padding = new Padding(20, 10, 0, 0)
-            };
-            var text = new TextBox
-            {
-                Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, BorderStyle = BorderStyle.None,
-                Font = new Font("Segoe UI", 11),
-                Text = "This is sample content used to test Aperture's camera detection." + Environment.NewLine +
-                       Environment.NewLine +
-                       "Point a phone at your webcam. This text should be covered right away, " +
-                       "and come back a moment after the phone is gone."
-            };
-
-            Controls.Add(text);
+            var status = new Label { Dock = DockStyle.Bottom, Height = 48 };
+            Controls.Add(new TextBox {
+                Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
+                Text = "Sample protected content. A phone or multiple people should hide this text. It returns after ten clear frames."
+            });
             Controls.Add(status);
-            Controls.Add(heading);
-            Shown += (s, e) => CameraGuard.Attach(this, status, ink);
+            Shown += (s, e) => CameraGuard.Attach(this, status, Color.FromArgb(42, 53, 69));
         }
     }
 }
