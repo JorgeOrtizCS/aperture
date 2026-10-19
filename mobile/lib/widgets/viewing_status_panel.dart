@@ -20,6 +20,11 @@ String viewingConditionLabel(String id) => switch (id) {
 ) {
   final condition = viewingConditionLabel(issue.condition ?? '');
   return switch (issue.kind) {
+    ViewingIssueKind.phoneDetected => (
+      title: 'Phone detected',
+      message: 'A phone was detected by the camera. Protected content is hidden and this viewing session has ended. Clear frames and rechecking cannot restore this session.',
+      icon: Icons.phonelink_lock_outlined,
+    ),
     ViewingIssueKind.screenshot => (
       title: 'Screenshot detected',
       message: 'This viewing session has ended. A screenshot may already have been saved. Rechecking cannot restore this session.',

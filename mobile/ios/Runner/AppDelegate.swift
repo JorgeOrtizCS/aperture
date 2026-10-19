@@ -16,6 +16,9 @@ import UIKit
       ScreenCaptureProtectionBridge.shared.register(
         with: engineBridge.applicationRegistrar.messenger()
       )
+      CameraDetectionBridge.shared.register(
+        with: engineBridge.applicationRegistrar.messenger()
+      )
     }
   }
 }

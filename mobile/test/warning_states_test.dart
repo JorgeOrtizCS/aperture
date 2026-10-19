@@ -62,18 +62,21 @@ void main() {
             restrictions: ContentRestrictions.demoDefaults,
             conditionProvider: conditions,
             captureProtection: protection,
+            cameraDetection: native.camera.service,
           )
         : demo
         ? SecureContentViewerScreen.demo(
             contentTitle: 'Demo',
             restrictions: ContentRestrictions.demoDefaults,
             captureProtection: protection,
+            cameraDetection: native.camera.service,
           )
         : SecureContentViewerScreen(
             contentTitle: 'Document',
             restrictions: ContentRestrictions.demoDefaults,
             conditionProvider: conditions,
             captureProtection: protection,
+            cameraDetection: native.camera.service,
           );
     await tester.pumpWidget(
       MaterialApp(

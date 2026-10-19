@@ -8,6 +8,7 @@ import '../widgets/content_restrictions_section.dart';
 
 enum ViewingIssueKind {
   screenshot,
+  phoneDetected,
   simulatedViolation,
   expired,
   viewLimitReached,
@@ -323,6 +324,7 @@ class ViewingStateController extends ChangeNotifier {
     if (_closed || securityViolation) return;
     assert(
       reason == ViewingIssueKind.screenshot ||
+          reason == ViewingIssueKind.phoneDetected ||
           reason == ViewingIssueKind.simulatedViolation,
     );
     _violationReason = reason;

@@ -5,7 +5,10 @@ import 'package:aperture/widgets/content_restrictions_section.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'camera_detection_fake.dart';
+
 class NativeCaptureFake {
+  final camera = NativeCameraFake();
   NativeEventsFake? events;
   Completer<bool>? enabling;
   Completer<void>? disabling;
@@ -19,6 +22,7 @@ class NativeCaptureFake {
   final calls = <String>[];
 
   void install() {
+    camera.install();
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(

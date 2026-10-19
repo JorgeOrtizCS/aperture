@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../controllers/viewing_state_controller.dart';
+import '../services/camera_detection.dart';
 import '../services/screen_capture_protection.dart';
 import '../services/viewing_conditions.dart';
 import '../widgets/content_restrictions_section.dart';
@@ -16,6 +17,7 @@ class SecureContentViewerScreen extends StatefulWidget {
   final ContentRestrictions restrictions;
   final ViewingConditionProvider? conditionProvider;
   final ScreenCaptureProtection? captureProtection;
+  final CameraDetectionService? cameraDetection;
   final bool demoPreview;
   final ViewingStateController? viewingController;
   final ValueChanged<ViewingIssueKind>? onSecurityViolation;
@@ -26,6 +28,7 @@ class SecureContentViewerScreen extends StatefulWidget {
     required this.restrictions,
     this.conditionProvider,
     this.captureProtection,
+    this.cameraDetection,
     this.viewingController,
   }) : demoPreview = false,
        onSecurityViolation = null;
@@ -36,6 +39,7 @@ class SecureContentViewerScreen extends StatefulWidget {
     required this.contentTitle,
     required this.restrictions,
     this.captureProtection,
+    this.cameraDetection,
     this.onSecurityViolation,
   }) : conditionProvider = null,
        viewingController = null,
@@ -49,6 +53,7 @@ class SecureContentViewerScreen extends StatefulWidget {
 class _SecureContentViewerScreenState extends State<SecureContentViewerScreen>
     with WidgetsBindingObserver {
   late final ViewingStateController _controller;
+  late final CameraDetectionSession _camera;
   DemoViewingConditions? _demoConditions;
   late final bool _ownsController;
   bool _exitScheduled = false;
@@ -73,11 +78,19 @@ class _SecureContentViewerScreenState extends State<SecureContentViewerScreen>
           demoPreview: widget.demoPreview,
         );
     _controller.addListener(_stateChanged);
+    _camera =
+        (widget.cameraDetection ?? CameraDetectionService.instance)
+            .createSession()
+          ..addListener(_cameraChanged);
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
       _controller.suspend();
     } else if (_ownsController) {
       unawaited(_controller.revalidate());
+    }
+    if ((lifecycle == null || lifecycle == AppLifecycleState.resumed) &&
+        !_controller.sessionEnded) {
+      unawaited(_camera.start());
     }
     if (_controller.securityViolation) {
       // A shared session may have ended between preflight and route creation.
@@ -85,6 +98,16 @@ class _SecureContentViewerScreenState extends State<SecureContentViewerScreen>
         if (mounted) _stateChanged();
       });
     }
+  }
+
+  void _cameraChanged() {
+    if (!mounted || _leaving) return;
+    if (_camera.state == CameraDetectionState.phoneDetected) {
+      _controller.endForSecurityViolation(
+        reason: ViewingIssueKind.phoneDetected,
+      );
+    }
+    setState(() {});
   }
 
   void _stateChanged() {
@@ -111,8 +134,10 @@ class _SecureContentViewerScreenState extends State<SecureContentViewerScreen>
     if (_leaving) return;
     if (state == AppLifecycleState.resumed) {
       unawaited(_controller.resume());
+      if (!_controller.sessionEnded) unawaited(_camera.start());
     } else {
       _controller.suspend();
+      unawaited(_camera.stop());
     }
   }
 
@@ -120,14 +145,27 @@ class _SecureContentViewerScreenState extends State<SecureContentViewerScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_stateChanged);
+    _camera.removeListener(_cameraChanged);
+    _camera.dispose();
     if (_ownsController) _controller.dispose();
     _demoConditions?.dispose();
     super.dispose();
   }
 
   Widget _viewingArea() {
-    if (!_leaving && _controller.state == ViewingState.allowed) {
+    if (!_leaving &&
+        _controller.state == ViewingState.allowed &&
+        _camera.state == CameraDetectionState.monitoring) {
       return const _ProtectedRenderPlaceholder();
+    }
+    if (!_leaving && _controller.state == ViewingState.allowed) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Text(
+          'Protected content is hidden until camera protection is confirmed.',
+          textAlign: TextAlign.center,
+        ),
+      );
     }
     return ViewingStatusPanel(
       controller: _controller,
@@ -140,6 +178,7 @@ class _SecureContentViewerScreenState extends State<SecureContentViewerScreen>
     onPopInvokedWithResult: (didPop, result) {
       if (didPop) {
         _leaving = true;
+        unawaited(_camera.stop());
         if (_ownsController) {
           _controller.suspend();
         } else {
@@ -167,8 +206,11 @@ class _SecureContentViewerScreenState extends State<SecureContentViewerScreen>
           children: [
             // No transition retains the outgoing protected subtree or semantics.
             _viewingArea(),
+            const SizedBox(height: 12),
+            _cameraStatus(),
             const SizedBox(height: 16),
-            if (_controller.state == ViewingState.allowed)
+            if (_controller.state == ViewingState.allowed &&
+                _camera.state == CameraDetectionState.monitoring)
               Text(
                 widget.demoPreview ? 'Demo checks only' : 'Checks passed',
                 textAlign: TextAlign.center,
@@ -218,6 +260,55 @@ class _SecureContentViewerScreenState extends State<SecureContentViewerScreen>
       ),
     ),
   );
+
+  Widget _cameraStatus() {
+    final state = _camera.state;
+    final latest = _camera.latest;
+    final title = switch (state) {
+      CameraDetectionState.stopped => 'Camera monitoring paused',
+      CameraDetectionState.checking => 'Checking camera protection',
+      CameraDetectionState.monitoring => 'Camera protection active',
+      CameraDetectionState.phoneDetected => 'Phone detected — content hidden',
+      CameraDetectionState.unavailable =>
+        _camera.errorCode == 'permission_denied'
+            ? 'Camera permission denied'
+            : 'Camera protection unavailable',
+    };
+    return Column(
+      children: [
+        Text(
+          title,
+          key: const ValueKey('camera-detection-status'),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: state == CameraDetectionState.monitoring
+                ? AppTheme.success
+                : AppTheme.textPrimary,
+          ),
+        ),
+        if (latest != null)
+          Text(
+            'People: ${latest.personCount} · Phone confidence: ${latest.phoneConfidence.toStringAsFixed(2)} · Inference: ${latest.latencyMs.toStringAsFixed(1)} ms',
+            textAlign: TextAlign.center,
+          ),
+        if (state == CameraDetectionState.unavailable) ...[
+          const Text(
+            'Camera checks failed. Content stays hidden. If permission was denied, allow Camera in system settings.',
+            textAlign: TextAlign.center,
+          ),
+          if (!_controller.sessionEnded)
+            TextButton(
+              onPressed: () {
+                unawaited(_controller.revalidate());
+                unawaited(_camera.start());
+              },
+              child: const Text('Retry camera protection'),
+            ),
+        ],
+      ],
+    );
+  }
 }
 
 class _ProtectedRenderPlaceholder extends StatelessWidget {

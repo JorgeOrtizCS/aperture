@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../controllers/viewing_state_controller.dart';
+import '../services/camera_detection.dart';
 import '../services/screen_capture_protection.dart';
 import '../services/viewing_conditions.dart';
 import '../theme/app_theme.dart';
@@ -18,6 +19,7 @@ class SecureViewerScreen extends StatefulWidget {
   final ContentRestrictions restrictions;
   final ViewingConditionProvider? conditionProvider;
   final ScreenCaptureProtection? captureProtection;
+  final CameraDetectionService? cameraDetection;
 
   const SecureViewerScreen({
     super.key,
@@ -26,6 +28,7 @@ class SecureViewerScreen extends StatefulWidget {
     this.restrictions = ContentRestrictions.demoDefaults,
     this.conditionProvider,
     this.captureProtection,
+    this.cameraDetection,
   });
 
   @override
@@ -83,6 +86,7 @@ class _SecureViewerScreenState extends State<SecureViewerScreen>
                 contentTitle: widget.contentTitle,
                 restrictions: widget.restrictions,
                 captureProtection: widget.captureProtection,
+                cameraDetection: widget.cameraDetection,
                 onSecurityViolation: (reason) =>
                     _controller.endForSecurityViolation(reason: reason),
               )
@@ -90,6 +94,7 @@ class _SecureViewerScreenState extends State<SecureViewerScreen>
                 contentTitle: widget.contentTitle,
                 restrictions: widget.restrictions,
                 viewingController: _controller,
+                cameraDetection: widget.cameraDetection,
               ),
       ),
     );
@@ -100,11 +105,13 @@ class _SecureViewerScreenState extends State<SecureViewerScreen>
       _violationAnnounced = true;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            _controller.violationReason == ViewingIssueKind.screenshot
-                ? 'Screenshot detected. This viewing session has ended.'
-                : 'Demo security violation. This viewing session has ended.',
-          ),
+          content: Text(switch (_controller.violationReason) {
+            ViewingIssueKind.screenshot =>
+              'Screenshot detected. This viewing session has ended.',
+            ViewingIssueKind.phoneDetected =>
+              'Phone detected. This viewing session has ended.',
+            _ => 'Demo security violation. This viewing session has ended.',
+          }),
         ),
       );
     }
