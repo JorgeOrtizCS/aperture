@@ -19,7 +19,7 @@ namespace Aperture_WebAPI.Controllers {
  public class ContentController : ApiController {
   // The approved schema does not contain device/IP columns on ViewingSession.
   // Keep both bindings in the same worker process as the login tokens.
-  sealed class SessionBinding {public Guid DeviceKey;public string IpAddress;}
+  sealed class SessionBinding {public Guid DeviceKey;public string IpAddress;public int CameraPolicyVersion;}
   static readonly ConcurrentDictionary<int,SessionBinding> SessionBindings=new ConcurrentDictionary<int,SessionBinding>();
   static string StorageRoot {get {var path=HttpContext.Current.Server.MapPath("~/App_Data/ContentFiles");Directory.CreateDirectory(path);return path;}}
   static string StoragePath(int id) {return Path.Combine(StorageRoot,id.ToString()+".bin");}
@@ -30,6 +30,8 @@ namespace Aperture_WebAPI.Controllers {
   }
   static SqlCommand Command(SqlConnection db,SqlTransaction tx,string sql) {return new SqlCommand(sql,db,tx);}
   static void Param(SqlCommand c,string n,object value) {c.Parameters.AddWithValue(n,value??DBNull.Value);}
+  [HttpGet,Route("capabilities")]
+  public IHttpActionResult Capabilities() {return Ok(new {CameraPolicyVersion=1});}
   [HttpGet,Route("")]
   public IHttpActionResult List() {
    var items=new List<SharedContent>();
@@ -44,6 +46,8 @@ namespace Aperture_WebAPI.Controllers {
       (request.StartTime.HasValue && request.ExpiresAt.HasValue && request.ExpiresAt<=request.StartTime) ||
       (request.ExpiresAt.HasValue && request.ExpiresAt<=DateTime.UtcNow))
       return BadRequest("Title, recipient and valid policy are required. Maximum views is unlimited or one.");
+   var camera=request.CameraRestrictions ?? new CameraRestrictions();
+   if(!camera.Enabled) {camera.BlockPhones=false;camera.BlockMultiplePeople=false;camera.RequireViewer=false;}
    byte[] bytes;string fileType;
    string requiredLocation=null;
    if(!String.IsNullOrWhiteSpace(request.AllowedCountry) || !String.IsNullOrWhiteSpace(request.AllowedRegion) || !String.IsNullOrWhiteSpace(request.AllowedCity)) {
@@ -65,7 +69,7 @@ namespace Aperture_WebAPI.Controllers {
     int recipient;using(var c=Command(db,tx,"SELECT UserID FROM Users WHERE Username=@name AND UserID<>@sender")) {Param(c,"@name",request.Recipient.Trim());Param(c,"@sender",RequestUser.Get().Id);var v=c.ExecuteScalar();if(v==null){tx.Rollback();return BadRequest("Recipient not found.");}recipient=(int)v;}
     using(var c=Command(db,tx,"INSERT INTO Content(SenderID,FileType,FileName) OUTPUT INSERTED.ContentID VALUES(@sender,@type,@name)")) {Param(c,"@sender",RequestUser.Get().Id);Param(c,"@type",fileType);Param(c,"@name",request.Title.Trim());newId=(int)c.ExecuteScalar();}
     using(var c=Command(db,tx,"INSERT INTO ContentRecipient(UserID,ContentID,AccessStatus) VALUES(@recipient,@id,'Active')")) {Param(c,"@recipient",recipient);Param(c,"@id",newId);c.ExecuteNonQuery();}
-    using(var c=Command(db,tx,"INSERT INTO AccessPolicy(ContentID,StartTime,ExpirationDate,RequiredLocation,TrustedDevice,MaximumViews,ScreenshotRestriction) VALUES(@id,@start,@expiry,@location,@trusted,@views,@screen)")) {Param(c,"@id",newId);Param(c,"@start",request.StartTime);Param(c,"@expiry",request.ExpiresAt);Param(c,"@location",requiredLocation);Param(c,"@trusted",request.RequireTrustedDevice);Param(c,"@views",request.MaxViews==1);Param(c,"@screen",request.ScreenshotRestriction);c.ExecuteNonQuery();}
+    using(var c=Command(db,tx,"INSERT INTO AccessPolicy(ContentID,StartTime,ExpirationDate,RequiredLocation,TrustedDevice,MaximumViews,ScreenshotRestriction,CameraDetectionEnabled,BlockPhones,BlockMultiplePeople,RequireViewer) VALUES(@id,@start,@expiry,@location,@trusted,@views,@screen,@camera,@phones,@people,@viewer)")) {Param(c,"@id",newId);Param(c,"@start",request.StartTime);Param(c,"@expiry",request.ExpiresAt);Param(c,"@location",requiredLocation);Param(c,"@trusted",request.RequireTrustedDevice);Param(c,"@views",request.MaxViews==1);Param(c,"@screen",request.ScreenshotRestriction);Param(c,"@camera",camera.Enabled);Param(c,"@phones",camera.BlockPhones);Param(c,"@people",camera.BlockMultiplePeople);Param(c,"@viewer",camera.RequireViewer);c.ExecuteNonQuery();}
     File.WriteAllBytes(StoragePath(newId),bytes);
     tx.Commit();committed=true;return Ok(new {id=newId});
    }catch{tx.Rollback();throw;}}}}
@@ -104,10 +108,10 @@ namespace Aperture_WebAPI.Controllers {
    if(currentIp==null)return Content(HttpStatusCode.Forbidden,new SessionResult {AccessGranted=false,Message="The API could not verify the client IP address."});
    using(var db=new SqlConnection(ConnectionStrings.Database)) {db.Open();using(var tx=db.BeginTransaction(IsolationLevel.Serializable)) {try {
     int recipient;using(var c=Command(db,tx,"SELECT RecipientID FROM ContentRecipient WITH (UPDLOCK,HOLDLOCK) WHERE ContentID=@id AND UserID=@user AND AccessStatus='Active'")) {Param(c,"@id",id);Param(c,"@user",RequestUser.Get().Id);var v=c.ExecuteScalar();if(v==null){tx.Rollback();return NotFound();}recipient=(int)v;}
-    var result=Evaluate(db,tx,id,recipient,request.DeviceKey,currentIp,false);if(!result.AccessGranted){tx.Commit();return Content(HttpStatusCode.Forbidden,result);}
+    var result=Evaluate(db,tx,id,recipient,request.DeviceKey,currentIp,false,request.CameraPolicyVersion);if(!result.AccessGranted){tx.Commit();return Content(HttpStatusCode.Forbidden,result);}
     using(var c=Command(db,tx,"INSERT INTO ViewingSession(RecipientID,ContentID) OUTPUT INSERTED.SessionID VALUES(@recipient,@id)")) {Param(c,"@recipient",recipient);Param(c,"@id",id);result.SessionId=(int)c.ExecuteScalar();}
     RecordCheck(db,tx,result.SessionId,true,true,result.DeviceVerified,null);tx.Commit();
-    SessionBindings[result.SessionId]=new SessionBinding {DeviceKey=request.DeviceKey,IpAddress=currentIp};
+    SessionBindings[result.SessionId]=new SessionBinding {DeviceKey=request.DeviceKey,IpAddress=currentIp,CameraPolicyVersion=request.CameraPolicyVersion};
     return Ok(result);
    }catch{tx.Rollback();throw;}}}
   }
@@ -118,7 +122,7 @@ namespace Aperture_WebAPI.Controllers {
     int id,recipient;using(var c=Command(db,tx,@"SELECT s.ContentID,s.RecipientID FROM ViewingSession s WITH (UPDLOCK,HOLDLOCK) JOIN ContentRecipient r ON r.RecipientID=s.RecipientID WHERE s.SessionID=@session AND r.UserID=@user AND s.SessionStatus='Active'")) {Param(c,"@session",sessionId);Param(c,"@user",RequestUser.Get().Id);using(var r=c.ExecuteReader()){if(!r.Read()){tx.Rollback();return NotFound();}id=r.GetInt32(0);recipient=r.GetInt32(1);}}
     string currentIp=GetRemoteIp(Request);
     bool ipVerified=currentIp!=null && String.Equals(binding.IpAddress,currentIp,StringComparison.OrdinalIgnoreCase);
-    var result=ipVerified ? Evaluate(db,tx,id,recipient,binding.DeviceKey,currentIp,true) : Deny("Client IP address changed during the viewing session.");
+    var result=ipVerified ? Evaluate(db,tx,id,recipient,binding.DeviceKey,currentIp,true,binding.CameraPolicyVersion) : Deny("Client IP address changed during the viewing session.");
     result.SessionId=sessionId;RecordCheck(db,tx,sessionId,result.AccessGranted,ipVerified&&result.LocationVerified,result.DeviceVerified,result.AccessGranted?null:result.Message);
     if(!result.AccessGranted){EndSession(db,tx,sessionId,"Revoked");SessionBinding old;SessionBindings.TryRemove(sessionId,out old);}
     tx.Commit();return Ok(result);
@@ -145,8 +149,8 @@ namespace Aperture_WebAPI.Controllers {
    }
    return String.IsNullOrWhiteSpace(value)?null:value.Trim();
   }
-  static SessionResult Evaluate(SqlConnection db,SqlTransaction tx,int id,int recipient,Guid device,string clientIp,bool existing) {
-   using(var c=Command(db,tx,@"SELECT c.FileName,c.FileType,r.AccessStatus,p.PolicyStatus,p.StartTime,p.ExpirationDate,p.MaximumViews,p.TrustedDevice,p.RequiredLocation,p.ScreenshotRestriction,CASE WHEN EXISTS(SELECT 1 FROM TrustedDevices d WHERE d.UserID=r.UserID AND d.DeviceIdentifier=@device AND d.IsTrusted=1) THEN 1 ELSE 0 END,(SELECT COUNT(*) FROM ViewingSession s WHERE s.RecipientID=r.RecipientID) FROM Content c JOIN ContentRecipient r ON r.ContentID=c.ContentID JOIN AccessPolicy p ON p.ContentID=c.ContentID WHERE c.ContentID=@id AND r.RecipientID=@recipient")) {Param(c,"@id",id);Param(c,"@recipient",recipient);Param(c,"@device",device.ToString("D"));using(var r=c.ExecuteReader()) {
+  static SessionResult Evaluate(SqlConnection db,SqlTransaction tx,int id,int recipient,Guid device,string clientIp,bool existing,int cameraPolicyVersion) {
+   using(var c=Command(db,tx,@"SELECT c.FileName,c.FileType,r.AccessStatus,p.PolicyStatus,p.StartTime,p.ExpirationDate,p.MaximumViews,p.TrustedDevice,p.RequiredLocation,p.ScreenshotRestriction,CASE WHEN EXISTS(SELECT 1 FROM TrustedDevices d WHERE d.UserID=r.UserID AND d.DeviceIdentifier=@device AND d.IsTrusted=1) THEN 1 ELSE 0 END,(SELECT COUNT(*) FROM ViewingSession s WHERE s.RecipientID=r.RecipientID),p.CameraDetectionEnabled,p.BlockPhones,p.BlockMultiplePeople,p.RequireViewer FROM Content c JOIN ContentRecipient r ON r.ContentID=c.ContentID JOIN AccessPolicy p ON p.ContentID=c.ContentID WHERE c.ContentID=@id AND r.RecipientID=@recipient")) {Param(c,"@id",id);Param(c,"@recipient",recipient);Param(c,"@device",device.ToString("D"));using(var r=c.ExecuteReader()) {
     if(!r.Read())return Deny("Content or policy not found.");string reason=null;bool locationVerified=true;var now=DateTime.UtcNow;
     if(r.GetString(2)!="Active" || r.GetString(3)!="Active")reason="Access has been revoked.";
     else if(!r.IsDBNull(4) && now<r.GetDateTime(4))reason="Access has not begun.";
@@ -159,9 +163,11 @@ namespace Aperture_WebAPI.Controllers {
      catch(JsonException) {policy=null;reason="The geographic access policy is invalid.";}
      if(reason==null) {var verification=IpGeolocationService.Verify(clientIp,policy);locationVerified=verification.Success&&verification.Matches;if(!locationVerified)reason=verification.Message;}
     }
+    var camera=new CameraRestrictions {Enabled=r.GetBoolean(12),BlockPhones=r.GetBoolean(13),BlockMultiplePeople=r.GetBoolean(14),RequireViewer=r.GetBoolean(15)};
+    if(reason==null && !camera.SupportsClient(cameraPolicyVersion))reason="This content requires camera protection. Use an updated Aperture desktop client.";
     if(reason==null && r.GetBoolean(9))reason="Screenshot restriction cannot be enforced by this desktop client.";
-    if(reason!=null)return new SessionResult {AccessGranted=false,Message=reason,DeviceVerified=r.GetInt32(10)!=0,LocationVerified=locationVerified};
-    try{var result=ReadContent(id,r.GetString(0),r.GetString(1));result.DeviceVerified=r.GetInt32(10)!=0;result.LocationVerified=locationVerified;return result;}
+    if(reason!=null)return new SessionResult {AccessGranted=false,Message=reason,DeviceVerified=r.GetInt32(10)!=0,LocationVerified=locationVerified,CameraRestrictions=camera};
+    try{var result=ReadContent(id,r.GetString(0),r.GetString(1));result.DeviceVerified=r.GetInt32(10)!=0;result.LocationVerified=locationVerified;result.CameraRestrictions=camera;return result;}
     catch(IOException){return Deny("Content file is unavailable.");}
    }}
   }
