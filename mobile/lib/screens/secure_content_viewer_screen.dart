@@ -2,388 +2,356 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../controllers/viewing_state_controller.dart';
+import '../services/camera_detection.dart';
 import '../services/screen_capture_protection.dart';
+import '../services/viewing_conditions.dart';
+import '../widgets/content_restrictions_section.dart';
 import '../theme/app_theme.dart';
+import '../widgets/viewing_status_panel.dart';
 
 enum SecureContentViewerExitReason { securityViolation }
 
 class SecureContentViewerScreen extends StatefulWidget {
   final String contentTitle;
+  final ContentRestrictions restrictions;
+  final ViewingConditionProvider? conditionProvider;
+  final ScreenCaptureProtection? captureProtection;
+  final CameraDetectionService? cameraDetection;
+  final bool demoPreview;
+  final ViewingStateController? viewingController;
+  final ValueChanged<ViewingIssueKind>? onSecurityViolation;
 
-  const SecureContentViewerScreen({super.key, required this.contentTitle});
+  const SecureContentViewerScreen({
+    super.key,
+    required this.contentTitle,
+    required this.restrictions,
+    this.conditionProvider,
+    this.captureProtection,
+    this.cameraDetection,
+    this.viewingController,
+  }) : demoPreview = false,
+       onSecurityViolation = null;
+
+  /// This route can display only the existing non-sensitive placeholder.
+  const SecureContentViewerScreen.demo({
+    super.key,
+    required this.contentTitle,
+    required this.restrictions,
+    this.captureProtection,
+    this.cameraDetection,
+    this.onSecurityViolation,
+  }) : conditionProvider = null,
+       viewingController = null,
+       demoPreview = true;
 
   @override
   State<SecureContentViewerScreen> createState() =>
       _SecureContentViewerScreenState();
 }
 
-class _SecureContentViewerScreenState extends State<SecureContentViewerScreen> {
-  final ScreenCaptureProtection _screenCaptureProtection =
-      ScreenCaptureProtection.instance;
-  StreamSubscription<bool>? _captureStateSubscription;
-  bool _captureDetected = false;
-  bool _viewingConditionInvalid = false;
-  bool _protectionDisabled = false;
+class _SecureContentViewerScreenState extends State<SecureContentViewerScreen>
+    with WidgetsBindingObserver {
+  late final ViewingStateController _controller;
+  late final CameraDetectionSession _camera;
+  DemoViewingConditions? _demoConditions;
+  late final bool _ownsController;
+  bool _exitScheduled = false;
+  bool _leaving = false;
 
   @override
   void initState() {
     super.initState();
-
-    _captureDetected = _screenCaptureProtection.isCaptureActive;
-    _captureStateSubscription = _screenCaptureProtection.captureStateChanges
-        .listen(_handleCaptureStateChanged);
-    _enableScreenCaptureProtection();
+    WidgetsBinding.instance.addObserver(this);
+    _demoConditions = widget.demoPreview ? DemoViewingConditions() : null;
+    _ownsController = widget.viewingController == null;
+    _controller =
+        widget.viewingController ??
+        ViewingStateController(
+          restrictions: widget.restrictions,
+          conditions:
+              _demoConditions ??
+              widget.conditionProvider ??
+              UnverifiedViewingConditions(),
+          protection:
+              widget.captureProtection ?? ScreenCaptureProtection.instance,
+          demoPreview: widget.demoPreview,
+        );
+    _controller.addListener(_stateChanged);
+    _camera =
+        (widget.cameraDetection ?? CameraDetectionService.instance)
+            .createSession()
+          ..addListener(_cameraChanged);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
+      _controller.suspend();
+    } else if (_ownsController) {
+      unawaited(_controller.revalidate());
+    }
+    if ((lifecycle == null || lifecycle == AppLifecycleState.resumed) &&
+        !_controller.sessionEnded) {
+      unawaited(_camera.start());
+    }
+    if (_controller.securityViolation) {
+      // A shared session may have ended between preflight and route creation.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _stateChanged();
+      });
+    }
   }
 
-  Future<void> _enableScreenCaptureProtection() async {
-    final captureDetected = await _screenCaptureProtection.enableProtection();
-    if (!mounted) {
-      return;
+  void _cameraChanged() {
+    if (!mounted || _leaving) return;
+    if (_camera.state == CameraDetectionState.phoneDetected) {
+      _controller.endForSecurityViolation(
+        reason: ViewingIssueKind.phoneDetected,
+      );
     }
-
-    setState(() {
-      _captureDetected = captureDetected;
-    });
+    setState(() {});
   }
 
-  void _handleCaptureStateChanged(bool captureDetected) {
-    if (!mounted) {
-      return;
+  void _stateChanged() {
+    if (!mounted) return;
+    setState(() {});
+    if (_controller.securityViolation && !_exitScheduled && !_leaving) {
+      _exitScheduled = true;
+      unawaited(_exitAfterContentIsHidden());
     }
-
-    setState(() {
-      _captureDetected = captureDetected;
-    });
   }
 
-  Future<void> _simulateSecurityViolation() async {
-    if (_viewingConditionInvalid) {
-      return;
-    }
-
-    setState(() {
-      _viewingConditionInvalid = true;
-    });
-
-    await _disableScreenCaptureProtection();
-    if (!mounted) {
-      return;
-    }
-
+  Future<void> _exitAfterContentIsHidden() async {
+    // Paint the opaque replacement before popping or releasing native protection.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || _leaving) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    _leaving = true;
+    widget.onSecurityViolation?.call(_controller.violationReason!);
     Navigator.pop(context, SecureContentViewerExitReason.securityViolation);
   }
 
-  Future<void> _disableScreenCaptureProtection() async {
-    if (_protectionDisabled) {
-      return;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_leaving) return;
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_controller.resume());
+      if (!_controller.sessionEnded) unawaited(_camera.start());
+    } else {
+      _controller.suspend();
+      unawaited(_camera.stop());
     }
-
-    _protectionDisabled = true;
-    await _captureStateSubscription?.cancel();
-    _captureStateSubscription = null;
-    await _screenCaptureProtection.disableProtection();
   }
 
   @override
   void dispose() {
-    unawaited(_disableScreenCaptureProtection());
+    WidgetsBinding.instance.removeObserver(this);
+    _controller.removeListener(_stateChanged);
+    _camera.removeListener(_cameraChanged);
+    _camera.dispose();
+    if (_ownsController) _controller.dispose();
+    _demoConditions?.dispose();
     super.dispose();
   }
 
+  Widget _viewingArea() {
+    if (!_leaving &&
+        _controller.state == ViewingState.allowed &&
+        _camera.state == CameraDetectionState.monitoring) {
+      return const _ProtectedRenderPlaceholder();
+    }
+    if (!_leaving && _controller.state == ViewingState.allowed) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Text(
+          'Protected content is hidden until camera protection is confirmed.',
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    return ViewingStatusPanel(
+      controller: _controller,
+      onRecheck: () => unawaited(_controller.revalidate()),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
+  Widget build(BuildContext context) => PopScope(
+    onPopInvokedWithResult: (didPop, result) {
+      if (didPop) {
+        _leaving = true;
+        unawaited(_camera.stop());
+        if (_ownsController) {
+          _controller.suspend();
+        } else {
+          setState(
+            () {},
+          ); // Hide the outgoing content without changing preflight state.
+        }
+      }
+    },
+    child: Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
         backgroundColor: AppTheme.background,
         foregroundColor: AppTheme.textPrimary,
         elevation: 0,
-        title: Text(widget.contentTitle),
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: _SecureIndicator(),
-          ),
-        ],
+        title: Text(
+          widget.contentTitle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
       body: SafeArea(
-        child: Padding(
+        child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.border),
-                  ),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    child: _viewingConditionInvalid
-                        ? const _ViewingConditionInvalidState()
-                        : _captureDetected
-                        ? const _CaptureBlockedState()
-                        : const _ProtectedRenderPlaceholder(),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
+          children: [
+            // No transition retains the outgoing protected subtree or semantics.
+            _viewingArea(),
+            const SizedBox(height: 12),
+            _cameraStatus(),
+            const SizedBox(height: 16),
+            if (_controller.state == ViewingState.allowed &&
+                _camera.state == CameraDetectionState.monitoring)
               Text(
-                _captureDetected
-                    ? 'Protected content will reappear automatically when screen capture stops.'
-                    : 'Decrypted PDFs, images, and text content will render in the protected area when the secure content service is connected.',
+                widget.demoPreview ? 'Demo checks only' : 'Checks passed',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 13,
-                  height: 1.4,
-                  color: AppTheme.textSecondary,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.success,
                 ),
               ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _viewingConditionInvalid
-                    ? null
-                    : _simulateSecurityViolation,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.warning,
-                  side: const BorderSide(color: Color(0xFFFCD34D)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                icon: const Icon(Icons.warning_amber_outlined),
-                label: const Text(
-                  'Demo: Simulate Security Violation',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
+            const SizedBox(height: 12),
+            Text(
+              widget.demoPreview
+                  ? 'Demo preview: placeholder only. Authorization, expiration, and view-count checks are not evaluated.'
+                  : 'Content stays hidden until capture protection and all required checks are confirmed.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.5,
+                color: AppTheme.textSecondary,
               ),
+            ),
+            const SizedBox(height: 16),
+            if (_demoConditions != null && !_controller.sessionEnded) ...[
+              ViewingActionButton(
+                label: _demoConditions!.satisfied
+                    ? 'Demo: Fail Viewing Condition'
+                    : 'Demo: Restore Viewing Condition',
+                secondary: true,
+                icon: Icons.science_outlined,
+                onPressed: _demoConditions!.toggle,
+              ),
+              const SizedBox(height: 8),
             ],
+            if (!_controller.sessionEnded)
+              ViewingActionButton(
+                label: 'Demo: Simulate Security Violation',
+                secondary: true,
+                icon: Icons.science_outlined,
+                onPressed: () => _controller.endForSecurityViolation(),
+              ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.maybePop(context),
+              child: const Text('Close viewer'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _cameraStatus() {
+    final state = _camera.state;
+    final latest = _camera.latest;
+    final title = switch (state) {
+      CameraDetectionState.stopped => 'Camera monitoring paused',
+      CameraDetectionState.checking => 'Checking camera protection',
+      CameraDetectionState.monitoring => 'Camera protection active',
+      CameraDetectionState.phoneDetected => 'Phone detected — content hidden',
+      CameraDetectionState.unavailable =>
+        _camera.errorCode == 'permission_denied'
+            ? 'Camera permission denied'
+            : 'Camera protection unavailable',
+    };
+    return Column(
+      children: [
+        Text(
+          title,
+          key: const ValueKey('camera-detection-status'),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: state == CameraDetectionState.monitoring
+                ? AppTheme.success
+                : AppTheme.textPrimary,
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _ViewingConditionInvalidState extends StatelessWidget {
-  const _ViewingConditionInvalidState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      key: const ValueKey('viewing-condition-invalid'),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Icon(
-                Icons.lock_clock_outlined,
-                color: AppTheme.warning,
-                size: 38,
-              ),
-            ),
-            const SizedBox(height: 22),
-            const Text(
-              'Viewing Ended',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'A required security condition is no longer satisfied. Protected content is being hidden and access will return to the secure viewer.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                height: 1.5,
-                color: AppTheme.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CaptureBlockedState extends StatelessWidget {
-  const _CaptureBlockedState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      key: const ValueKey('capture-blocked'),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Icon(
-                Icons.visibility_off_outlined,
-                color: AppTheme.warning,
-                size: 38,
-              ),
-            ),
-            const SizedBox(height: 22),
-            const Text(
-              'Content Hidden',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Screen recording or screen sharing was detected. Aperture has temporarily hidden this protected content. Stop screen capture to continue viewing.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                height: 1.5,
-                color: AppTheme.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SecureIndicator extends StatelessWidget {
-  const _SecureIndicator();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppTheme.primarySoft,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.lock_outline, color: AppTheme.primary, size: 16),
-          SizedBox(width: 6),
+        if (latest != null)
           Text(
-            'Secure',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.primary,
-            ),
+            'People: ${latest.personCount} · Phone confidence: ${latest.phoneConfidence.toStringAsFixed(2)} · Inference: ${latest.latencyMs.toStringAsFixed(1)} ms',
+            textAlign: TextAlign.center,
           ),
+        if (state == CameraDetectionState.unavailable) ...[
+          const Text(
+            'Camera checks failed. Content stays hidden. If permission was denied, allow Camera in system settings.',
+            textAlign: TextAlign.center,
+          ),
+          if (!_controller.sessionEnded)
+            TextButton(
+              onPressed: () {
+                unawaited(_controller.revalidate());
+                unawaited(_camera.start());
+              },
+              child: const Text('Retry camera protection'),
+            ),
         ],
-      ),
+      ],
     );
   }
 }
 
 class _ProtectedRenderPlaceholder extends StatelessWidget {
   const _ProtectedRenderPlaceholder();
-
   @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Column(
-          children: [
-            Expanded(
-              child: Center(
-                key: const ValueKey('protected-render-placeholder'),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 360),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 76,
-                        height: 76,
-                        decoration: BoxDecoration(
-                          color: AppTheme.primarySoft,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Icon(
-                          Icons.insert_drive_file_outlined,
-                          color: AppTheme.primary,
-                          size: 38,
-                        ),
-                      ),
-                      const SizedBox(height: 22),
-                      const Text(
-                        'Protected content viewer',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'This area is reserved for the decrypted document, image, or message body.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 15,
-                          height: 1.5,
-                          color: AppTheme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            if (constraints.maxHeight > 420) ...[
-              const Divider(color: AppTheme.border),
-              const SizedBox(height: 12),
-              const Row(
-                children: [
-                  Icon(
-                    Icons.visibility_outlined,
-                    size: 18,
-                    color: AppTheme.textSecondary,
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Renderer placeholder sized for future PDF, image, or text modules.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => Container(
+    key: const ValueKey('protected-render-placeholder'),
+    padding: const EdgeInsets.all(24),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: AppTheme.border),
+    ),
+    child: const Column(
+      children: [
+        ExcludeSemantics(
+          child: Icon(
+            Icons.insert_drive_file_outlined,
+            size: 48,
+            color: AppTheme.primary,
+          ),
+        ),
+        SizedBox(height: 20),
+        Text(
+          'Protected content viewer',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: AppTheme.textPrimary,
+          ),
+        ),
+        SizedBox(height: 12),
+        Text(
+          'This area is reserved for the decrypted document, image, or message body.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 15,
+            height: 1.5,
+            color: AppTheme.textSecondary,
+          ),
+        ),
+      ],
+    ),
+  );
 }
