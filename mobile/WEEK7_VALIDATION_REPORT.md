@@ -6,6 +6,32 @@ Technical contract alignment is verified; joint sign-off with Jorge remains open
 Full device acceptance remains incomplete: the physical iPhone was unavailable, and
 the tested Android emulator crashes inside the native MediaPipe library.
 
+## Current publication and wrap-up
+
+The implementation is committed and published in
+[draft PR #8](https://github.com/JorgeOrtizCS/aperture/pull/8), targeting `main`
+from `rylee/mobile-secure-viewing`. The PR includes the approved implementation commits
+`f81a5b3d9504850aede266959c34b0c976fe8e85` and
+`30a8ed664dc08694085a726f1f054d10256c68e1` (implementation baseline), followed
+by a documentation-only finalization commit. The latter implementation commit retains the exact 27-file mobile scope below, without the local
+personal signing-team or bundle-ID changes.
+
+At the October 19 wrap-up snapshot, GitHub reports `MERGEABLE` / `CLEAN`, no review
+comments, no submitted/requested reviews and zero check runs, commit statuses or
+Actions workflow runs for the head. Empty statuses produce a combined REST state
+of `pending`; no actual pending check and no CI success were observed.
+The PR remains DRAFT and is ready for human review, not final device acceptance.
+
+The existing test/build logs were reconciled with the unchanged published source;
+no implementation change or repeated runtime validation was needed. The report's
+pre-commit Git inventory below is retained as history, not current branch status.
+See [wrap-up and Jorge review brief](WEEK7_WRAP_UP.md) and
+[device procedures with pass/fail criteria](WEEK7_DEVICE_ACCEPTANCE.md).
+The wrap-up documentation is finalized in a separate four-file documentation
+commit for PR #8. No implementation or personal signing settings changed; no
+merge or rebase was performed. The test outcomes below remain those observed
+for the implementation baseline, not new device results.
+
 ## Assigned Week 7 tasks
 
 | Assigned task | Implementation status | Verification |
@@ -217,7 +243,8 @@ review. No production source was changed during this final review.
 - A phone event removes the protected subtree on the next Flutter frame and
   permanently ends the shared controller session. Camera recovery cannot release
   a recording lock or revive a security violation.
-- `lib/services/screen_capture_protection.dart` is unchanged from HEAD. The iOS
+- `lib/services/screen_capture_protection.dart` is unchanged from the
+  pre-integration baseline `f81a5b3`. The iOS
   capture bridge is unchanged except for adjacent camera registration; its scene
   capture observer, legacy recording/mirroring observer and screenshot notification
   remain intact. Android's enable/disable `FLAG_SECURE` handlers are unchanged.
@@ -231,7 +258,14 @@ review. No production source was changed during this final review.
 - Same-image model parity, front-camera accuracy and actual capture prevention
   have not been established by mocked channels or synthetic gray images.
 
-## Git review and proposed commit
+## Pre-commit Git review (historical snapshot)
+
+This section records the review before commit `30a8ed6`. Its former HEAD,
+upstream/remote absence, file inventory and proposed message are historical.
+The actual committed message is
+`feat(mobile): integrate native camera detection into secure viewer`.
+Use the current publication section above for present PR status. The original
+27-file recommendation is preserved for traceability and matches that commit.
 
 Remote heads were checked read-only with `git ls-remote --heads origin` during
 this review. They match the locally available remote refs; no fetch, index update,
@@ -309,7 +343,7 @@ SDKs, DerivedData, probes or test result bundles belong in the commit.
 
 ## Files and evidence
 
-During this final review, changes were limited to:
+During the pre-commit implementation review, changes were limited to:
 
 - `test/camera_detection_test.dart`: three additional startup regressions.
 - `integration_test/camera_detection_device_test.dart`: enable physical iOS live
@@ -317,8 +351,10 @@ During this final review, changes were limited to:
 - `README.md` and this report: final results, findings and commit scope.
 
 Pre-existing mobile integration and personal signing changes were preserved.
-No desktop, WebAPI, database or original camera sources were modified. No files
-were staged, committed or pushed, and no merge or rebase was performed.
+No desktop, WebAPI, database or original camera sources were modified. At that
+pre-commit review point no files had yet been staged, committed or pushed, and no
+merge or rebase had been performed. Publication happened afterward as recorded
+in the current-status section above.
 
 Final-review evidence is retained under ignored `build/week7/`:
 
@@ -351,9 +387,9 @@ review; that generated copy was removed. The pre-existing app-workspace
 
 ## Completion decision
 
-**Ready for a scoped implementation commit**, using the exact file/hunk scope
-above and documenting the unresolved runtime/device acceptance. It is not ready
-for a claim that all Week 7 acceptance testing passed.
+**Implementation committed and published; ready for human review in draft PR
+#8.** The exact file/hunk scope above was used. Full acceptance remains open;
+no claim is made that all Week 7 device testing passed.
 
 The four tasks have technical implementations. Direct coordination acceptance
 with Jorge, same-image parity and hardware validation remain open. Physical

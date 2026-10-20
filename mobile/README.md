@@ -4,6 +4,9 @@
 
 The latest results and remaining acceptance checks are in
 [Week 7 mobile validation report](WEEK7_VALIDATION_REPORT.md).
+[Final wrap-up and Jorge review brief](WEEK7_WRAP_UP.md) and
+[physical-device acceptance procedures](WEEK7_DEVICE_ACCEPTANCE.md) provide the
+remaining handoff in the documentation-only follow-up to draft PR #8.
 
 The secure content route now runs a native MediaPipe Object Detector on the front
 camera on iOS and Android. Frames stay in memory: there is no preview, frame
@@ -104,8 +107,8 @@ the first screenshot from being saved.
 
 Verification on October 19, 2026:
 
-- `flutter analyze --no-pub`: no issues.
-- `flutter test --no-pub`: all 125 tests passed.
+- `flutter analyze`: no issues.
+- `flutter test`: all 125 tests passed.
 - Unsigned iPhone ARM build: passed with Xcode 26.6.
 - ARM iPhone 17 Pro simulator XCTest: `testBundledModelRunsNativeInference` passed.
   It loads the real model and runs inference on a synthetic gray image, without
@@ -172,8 +175,11 @@ prepared in `integration_test/camera_detection_device_test.dart`; the two live
 checks support Android and physical iOS with Camera permission granted. Android
 requires a compatible runtime. They have not passed.
 Full Week 7 device validation cannot yet be marked complete. The implementation
-is ready for a scoped commit; see the report for all 27 files and the personal
-signing/bundle-ID hunks to exclude. No staging or history changes were performed.
+is committed and published in [draft PR #8](https://github.com/JorgeOrtizCS/aperture/pull/8),
+ready for implementation review. The report preserves the historical 27-file scope;
+personal signing/bundle-ID changes remain local and unstaged. The wrap-up added
+only documentation, finalized in a separate documentation commit. Production
+code and the PR's draft state are unchanged.
 
 ### Follow-up with Jorge
 
