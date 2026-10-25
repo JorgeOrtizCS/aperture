@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Concurrent;
-using System.Data.SqlClient;
+using MySql.Data.MySqlClient;
 using Aperture_WebAPI.Config;
 using Aperture_WebAPI.Models;
 namespace Aperture_WebAPI.Services {
@@ -21,10 +21,10 @@ namespace Aperture_WebAPI.Services {
    if(string.IsNullOrWhiteSpace(token))return null;
    SessionToken session;var hash=TokenService.HashToken(token);if(!Tokens.TryGetValue(hash,out session))return null;
    if(session.ExpiresAt<=DateTime.UtcNow){Tokens.TryRemove(hash,out session);return null;}
-   using(var db=new SqlConnection(ConnectionStrings.Database)) {db.Open();using(var c=new SqlCommand("SELECT UserID,Username,PasswordHash,DateCreated FROM Users WHERE UserID=@id",db)) {c.Parameters.AddWithValue("@id",session.UserId);using(var r=c.ExecuteReader()){if(!r.Read())return null;return new ApplicationUser {Id=r.GetInt32(0),Username=r.GetString(1),PasswordHash=r.GetString(2),CreatedAt=r.GetDateTime(3),IsActive=true};}}}
+   using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var c=new MySqlCommand("SELECT UserID,Username,PasswordHash,DateCreated FROM Users WHERE UserID=@id",db)) {c.Parameters.AddWithValue("@id",session.UserId);using(var r=c.ExecuteReader()){if(!r.Read())return null;return new ApplicationUser {Id=r.GetInt32(0),Username=r.GetString(1),PasswordHash=r.GetString(2),CreatedAt=r.GetDateTime(3),IsActive=true};}}}
   }
   static ApplicationUser FindUser(string username) {
-   using(var db=new SqlConnection(ConnectionStrings.Database)) {db.Open();using(var c=new SqlCommand("SELECT UserID,Username,PasswordHash,DateCreated FROM Users WHERE Username=@name",db)) {c.Parameters.AddWithValue("@name",username);using(var r=c.ExecuteReader()){if(!r.Read())return null;return new ApplicationUser {Id=r.GetInt32(0),Username=r.GetString(1),PasswordHash=r.GetString(2),CreatedAt=r.GetDateTime(3),IsActive=true};}}}
+   using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var c=new MySqlCommand("SELECT UserID,Username,PasswordHash,DateCreated FROM Users WHERE Username=@name",db)) {c.Parameters.AddWithValue("@name",username);using(var r=c.ExecuteReader()){if(!r.Read())return null;return new ApplicationUser {Id=r.GetInt32(0),Username=r.GetString(1),PasswordHash=r.GetString(2),CreatedAt=r.GetDateTime(3),IsActive=true};}}}
   }
  }
 }

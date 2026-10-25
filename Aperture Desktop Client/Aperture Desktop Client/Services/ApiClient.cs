@@ -73,6 +73,23 @@ namespace Aperture_Desktop_Client.Services
 
                     if (!response.IsSuccessStatusCode)
                     {
+                        // Pausing a policy can end the session before its next check.
+                        // Treat that missing session as a denial so the viewer can
+                        // request fresh authorization after the sender resumes access.
+                        if (response.StatusCode == System.Net.HttpStatusCode.NotFound &&
+                            typeof(TResponse) == typeof(Models.SessionResult))
+                            return (TResponse)(object)new Models.SessionResult {
+                                AccessGranted = false, Message = "Content or viewing session is unavailable. Retrying authorization..."
+                            };
+                        // Viewing-policy denials are expected results, including HTTP 403.
+                        // Other callers retain the normal HTTP error handling.
+                        if (response.StatusCode == System.Net.HttpStatusCode.Forbidden &&
+                            typeof(TResponse) == typeof(Models.SessionResult))
+                        {
+                            var denied = JsonConvert.DeserializeObject<Models.SessionResult>(responseJson);
+                            if (denied != null && !denied.AccessGranted && !string.IsNullOrWhiteSpace(denied.Message))
+                                return (TResponse)(object)denied;
+                        }
                         throw new Exception(
                             "API returned an error.\r\n\r\n" +
                             "HTTP Status: " +
