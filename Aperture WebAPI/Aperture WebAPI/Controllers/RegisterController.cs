@@ -1,5 +1,5 @@
 using System;
-using System.Data.SqlClient;
+using MySql.Data.MySqlClient;
 using System.Net;
 using System.Web.Http;
 using Aperture_WebAPI.Config;
@@ -36,15 +36,15 @@ namespace Aperture_WebAPI.Controllers
                 PasswordService.HashPassword(
                     request.Password);
 
-            using (SqlConnection connection = new SqlConnection(ConnectionStrings.Database))
+            using (MySqlConnection connection = new MySqlConnection(ConnectionStrings.Database))
             {
                 connection.Open();
 
                 const string sql = @"INSERT INTO Users(FirstName, LastName, Username, PasswordHash)
                     VALUES(@FirstName, @LastName, @Username, @PasswordHash)";
 
-                using (SqlCommand command =
-                       new SqlCommand(sql, connection))
+                using (MySqlCommand command =
+                       new MySqlCommand(sql, connection))
                 {
                     command.Parameters.AddWithValue(
                         "@Username",
@@ -61,7 +61,7 @@ namespace Aperture_WebAPI.Controllers
                     {
                         command.ExecuteNonQuery();
                     }
-                    catch (SqlException ex)
+                    catch (MySqlException ex)
                     {
                         if (ex.Number == 2601 ||
                             ex.Number == 2627)
