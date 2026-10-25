@@ -17,6 +17,7 @@ Usage:
     python detector_service.py --camera 1      # pick a different webcam
     python detector_service.py --preview       # also show the camera feed with boxes (testing/demos)
     python detector_service.py --image x.jpg   # one-shot check on a photo (for testing)
+    python detector_service.py --check         # test python packages, model and webcam, then exit
 
 Anything that isn't detection output (startup info, errors) goes to stderr so
 the stdout stream stays clean, one JSON object per line.
@@ -26,7 +27,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import cv2
 import mediapipe as mp
@@ -81,7 +82,7 @@ class CameraDetector:
             'phone_confidence': round(best, 3),
             'person_count': len(person_dets),
             'latency_ms': round(latency_ms, 2),
-            'timestamp': datetime.now().isoformat(timespec='milliseconds'),
+            'timestamp': datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
         }
 
 
@@ -105,6 +106,36 @@ def draw_preview(frame, detector, result):
     return (cv2.waitKey(1) & 0xFF) != ord('q')
 
 
+def self_check(camera_index):
+    """Quick setup test for teammates: run with --check. Prints what works and what doesn't."""
+    ok = True
+    print(f'python      {sys.executable} ({sys.version.split()[0]})')
+    print(f'mediapipe   {getattr(mp, "__version__", "unknown")}')
+    print(f'opencv      {cv2.__version__}')
+    if os.path.exists(MODEL_PATH):
+        print(f'model       OK  {os.path.normpath(MODEL_PATH)}')
+    else:
+        print(f'model       MISSING  expected at {os.path.normpath(MODEL_PATH)}')
+        return False
+    try:
+        detector = CameraDetector()
+        print('detector    OK  model loaded')
+    except Exception as e:
+        print(f'detector    FAILED  {type(e).__name__}: {e}')
+        return False
+    cap = cv2.VideoCapture(camera_index)
+    ret, frame = cap.read() if cap.isOpened() else (False, None)
+    cap.release()
+    if not ret:
+        print(f'camera {camera_index}    FAILED  could not read a frame (no webcam, wrong index, or another app is using it)')
+        return False
+    result = detector.check(frame)
+    print(f'camera {camera_index}    OK  {frame.shape[1]}x{frame.shape[0]}')
+    print(f'test frame  {json.dumps(result)}')
+    print('ALL GOOD' if ok else 'PROBLEMS FOUND')
+    return ok
+
+
 def emit(result):
     # flush=True matters: without it Python buffers stdout when it's piped into
     # another program, and the desktop app would get results in delayed chunks.
@@ -115,9 +146,14 @@ def main():
     parser = argparse.ArgumentParser(description='Aperture camera detection service')
     parser.add_argument('--camera', type=int, default=0, help='webcam index (default 0)')
     parser.add_argument('--image', help='run once on an image file instead of the webcam')
+    parser.add_argument('--check', action='store_true',
+                        help='test the setup (python packages, model, webcam) and exit')
     parser.add_argument('--preview', action='store_true',
                         help='also show the camera feed with boxes (for testing/demos, press q to quit)')
     args = parser.parse_args()
+
+    if args.check:
+        sys.exit(0 if self_check(args.camera) else 1)
 
     detector = CameraDetector()
 

@@ -34,6 +34,7 @@ namespace Aperture_Desktop_Client.Services
     {
         Process process;
         bool stopping;
+        volatile string lastError;
 
         public event Action<CameraDetectionResult> ResultReceived;
         public event Action<string> Failed;
@@ -44,6 +45,7 @@ namespace Aperture_Desktop_Client.Services
         {
             if (IsRunning) return;
             stopping = false;
+            lastError = null;
 
             var script = FindDetectorScript();
             if (script == null)
@@ -71,8 +73,26 @@ namespace Aperture_Desktop_Client.Services
             {
                 process = new Process { StartInfo = info, EnableRaisingEvents = true };
                 process.OutputDataReceived += (s, e) => HandleLine(e.Data);
-                process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) Debug.WriteLine("[detector] " + e.Data); };
-                process.Exited += (s, e) => { if (!stopping) Failed?.Invoke("Camera detector stopped"); };
+                process.ErrorDataReceived += (s, e) =>
+                {
+                    if (string.IsNullOrEmpty(e.Data)) return;
+                    Debug.WriteLine("[detector] " + e.Data);
+                    // Keep the last real error line so a crash says WHY it stopped (missing package,
+                    // camera in use, model not found) instead of just "stopped". Python's stderr also
+                    // carries harmless INFO/WARN lines from TensorFlow Lite and OpenCV, skip those.
+                    var line = e.Data.Trim();
+                    if (!line.StartsWith("INFO") && !line.StartsWith("[ WARN") && !line.StartsWith("WARNING") &&
+                        !line.StartsWith("Aperture detector running"))
+                        lastError = line;
+                };
+                process.Exited += (s, e) =>
+                {
+                    if (stopping) return;
+                    var reason = lastError;
+                    Failed?.Invoke(string.IsNullOrEmpty(reason)
+                        ? "Camera detector stopped (run: python detector_service.py --check)"
+                        : "Camera detector stopped: " + reason);
+                };
                 process.Start();
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
