@@ -78,6 +78,7 @@ Create TABLE AccessPolicy(
     ScreenShot_Restriction BOOLEAN,
     TrustedDevice BOOLEAN,
     PolicyStatus VARCHAR(100),
+    Requirements JSON,
     DateCreated DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (ContentID) REFERENCES Content(ContentID)
 );
