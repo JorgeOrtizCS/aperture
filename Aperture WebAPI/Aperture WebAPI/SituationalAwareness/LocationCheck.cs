@@ -200,14 +200,14 @@ namespace Aperture_WebAPI.SituationalAwareness
             if (!recipientLatitude.HasValue || !recipientLongitude.HasValue)
             {
                 return ConditionResult.Fail(
-                    "This content requires precise location, but the client did not provide GPS coordinates.", true);
+                    "Your location is unavailable. Turn on location sharing to keep viewing.", true);
             }
 
             // A failed or spoofed GPS reading (NaN, out of range) must never pass the radius check:
             // any comparison against NaN is false, which would otherwise read as "inside the radius".
             if (!IsValidCoordinate(recipientLatitude.Value, recipientLongitude.Value))
             {
-                return ConditionResult.Fail("The client's GPS coordinates were invalid.", true);
+                return ConditionResult.Fail("Your device sent an invalid location. Turn location sharing off and on again.", true);
             }
 
             double distance = HaversineDistanceMeters(
@@ -216,7 +216,23 @@ namespace Aperture_WebAPI.SituationalAwareness
 
             return distance <= policy.RadiusMeters.Value
                 ? ConditionResult.Pass()
-                : ConditionResult.Fail("Recipient is outside the required location radius.", true);
+                : ConditionResult.Fail(
+                    "You are about " + FormatDistance(distance - policy.RadiusMeters.Value) +
+                    " outside the allowed area. Move back into it to keep viewing.", true);
+        }
+
+        // Rounded for people: "40 m", "1.2 km", "35 km". Messages are stored in
+        // EnvironmentCheck.ViolationType (VARCHAR(100)), so this stays short.
+        private static string FormatDistance(double meters)
+        {
+            if (meters < 1000)
+            {
+                return Math.Max(10, Math.Round(meters / 10) * 10).ToString("0", CultureInfo.InvariantCulture) + " m";
+            }
+
+            return meters < 10000
+                ? (meters / 1000).ToString("0.#", CultureInfo.InvariantCulture) + " km"
+                : Math.Min(99999, Math.Round(meters / 1000)).ToString("0", CultureInfo.InvariantCulture) + " km";
         }
 
         /// <summary>Great-circle distance between two lat/long points, in meters.</summary>

@@ -16,7 +16,8 @@ namespace Aperture_WebAPI.SituationalAwareness
     /// in EnvironmentCheck, which gives the audit trail of suspensions.
     ///
     /// The controller passes the denial reason to KeepAlive() before deciding whether to end the
-    /// session. Failures that can never recover (expired, revoked) still end it.
+    /// session. Revocation ends it at once; expiry ends it once the grace period for the sender to
+    /// extend the window has passed (see TimeWindowCheck.ExpiryGraceSeconds).
     ///
     /// The suspension state of each open session is tracked here too (in memory, like the session's
     /// IP/device binding), so it can be queried and so a sender or recipient can suspend a session on
@@ -168,7 +169,8 @@ namespace Aperture_WebAPI.SituationalAwareness
         // Denial reasons (as worded by ContentController, IpGeolocationService and LocationCheck) for
         // conditions that can become true again mid-session. Anything not listed ends the session,
         // so an unrecognised or reworded message fails safe. Expiry and revocation are deliberately
-        // absent: they can never recover. "IP geolocation failed" (the lookup provider erroring or
+        // absent: revocation can never recover, and expiry is kept alive only during its grace period,
+        // which TimeWindowCheck.ExpiredReason() flags on the request itself. "IP geolocation failed" (the lookup provider erroring or
         // rate-limiting, e.g. HTTP 429) is also absent on purpose: it is not something the viewer can
         // fix, and keeping the session open would re-call the provider on every poll, and failed
         // lookups are not cached, which would make a rate limit worse.

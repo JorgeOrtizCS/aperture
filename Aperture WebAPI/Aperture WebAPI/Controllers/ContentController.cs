@@ -135,7 +135,7 @@ namespace Aperture_WebAPI.Controllers {
     return Ok(result);
    }catch{tx.Rollback();throw;}}}
   }
-  /// <summary>Rechecks an open session (clients call this every 5 seconds). A failure that can recover (location, IP, device) keeps the session open and returns AccessGranted = false; expiry or revocation ends it.</summary>
+  /// <summary>Rechecks an open session (clients call this every 5 seconds). A failure that can recover (location, IP, device) keeps the session open and returns AccessGranted = false; revocation ends it, and so does expiry unless the sender extends the window within 5 minutes.</summary>
   /// <response code="200">Result of the check; read AccessGranted.</response>
   /// <response code="403">Session unknown or expired; open the content again.</response>
   /// <response code="404">Session not found or already ended.</response>
@@ -178,7 +178,7 @@ namespace Aperture_WebAPI.Controllers {
     if(!r.Read())return Deny("Content or policy not found.");string reason=null;bool locationVerified=true;var now=DateTime.UtcNow;
     if(r.GetString(2)!="Active" || r.GetString(3)!="Active")reason="Access has been revoked.";
     else if(!r.IsDBNull(4) && now<r.GetDateTime(4))reason="Access has not begun.";
-    else if(!r.IsDBNull(5) && now>=r.GetDateTime(5))reason="Access has expired.";
+    else if(!r.IsDBNull(5) && now>=r.GetDateTime(5))reason=TimeWindowCheck.ExpiredReason(r.GetDateTime(5),now,existing); // [Situational Awareness] grace period for an extension
     else if(!existing && r.GetBoolean(6) && r.GetInt32(11)>=1)reason="Maximum views reached.";
     else if(r.GetBoolean(7) && r.GetInt32(10)==0)reason="Approved device required.";
     else if(!r.IsDBNull(8) && LocationCheck.IsPrecisePolicy(r.GetString(8))) {var precise=LocationCheck.Evaluate(r.GetString(8),clientIp);locationVerified=precise.Passed;if(!precise.Passed)reason=precise.Reason;} // [Situational Awareness] precise GPS radius
