@@ -10,6 +10,7 @@ This document describes how the pieces fit together. To run things locally, see 
 flowchart LR
     subgraph Clients
         D["Desktop client<br/>WinForms, .NET Framework 4.7.2<br/>(Windows only)"]
+        W["Web client<br/>React + Vite<br/>(any browser)"]
         M["Mobile app<br/>Flutter (Android / iOS)<br/>UI prototype, not connected yet"]
         T["Dev tools<br/>Swagger UI, Bruno, Postman, .http"]
     end
@@ -25,6 +26,7 @@ flowchart LR
     CAM["camera/ prototype<br/>phone detection (Python)"]
 
     D -- "HTTPS JSON, bearer token" --> API
+    W -- "JSON via dev-server proxy, bearer token" --> API
     T --> API
     M -. "planned" .-> API
     API --- MEM
@@ -37,6 +39,7 @@ flowchart LR
 |---|---|---|---|
 | Web API | [`Aperture WebAPI/`](../Aperture%20WebAPI/) | ASP.NET Core on .NET 8, Newtonsoft.Json, Microsoft.Data.SqlClient, SkiaSharp | Main backend; runs on macOS, Linux and Windows |
 | Database | [`Aperture WebAPI/Aperture_Diagram_Database.sql`](../Aperture%20WebAPI/Aperture_Diagram_Database.sql) | SQL Server 2022 (Docker for local development) | Schema in use |
+| Web client | [`web/`](../web/) | React 19, TypeScript, Vite, React Router | Working client in any browser; follows the mobile app's design. See [web/README.md](../web/README.md) |
 | Desktop client | [`Aperture Desktop Client/`](../Aperture%20Desktop%20Client/) | Windows Forms, .NET Framework 4.7.2 | Working client; Windows only |
 | Mobile app | [`mobile/`](../mobile/) | Flutter | UI screens and native screen-capture protection; does not call the API yet (`api_service.dart` is empty) |
 | Camera prototype | [`camera/`](../camera/) | Python, OpenCV, MediaPipe | Standalone experiment that detects a phone in the webcam feed; not integrated |
