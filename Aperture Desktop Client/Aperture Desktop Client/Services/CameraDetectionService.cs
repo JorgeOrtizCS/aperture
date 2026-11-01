@@ -26,7 +26,7 @@ namespace Aperture_Desktop_Client.Services
     /// BeginInvoke before touching controls.
     ///
     /// Where it looks for things:
-    ///   APERTURE_PYTHON   python executable (default "python", must have mediapipe + opencv installed)
+    ///   APERTURE_PYTHON   python executable (overrides camera/venv, then PATH)
     ///   APERTURE_DETECTOR full path to detector_service.py (default: searches up from the exe
     ///                     for camera\src\detector_service.py, which finds it inside the repo)
     /// </summary>
@@ -54,8 +54,7 @@ namespace Aperture_Desktop_Client.Services
                 return;
             }
 
-            var python = Environment.GetEnvironmentVariable("APERTURE_PYTHON");
-            if (string.IsNullOrWhiteSpace(python)) python = "python";
+            var python = FindPythonExecutable(script);
 
             var info = new ProcessStartInfo
             {
@@ -83,7 +82,9 @@ namespace Aperture_Desktop_Client.Services
                     var line = e.Data.Trim();
                     if (!line.StartsWith("INFO") && !line.StartsWith("[ WARN") && !line.StartsWith("WARNING") &&
                         !line.StartsWith("Aperture detector running"))
-                        lastError = line;
+                        lastError = line.Contains("ModuleNotFoundError:")
+                            ? "Missing camera dependencies in " + python + ". Run camera\\setup.ps1, or set APERTURE_PYTHON to an environment with the camera requirements installed. " + line
+                            : line;
                 };
                 process.Exited += (s, e) =>
                 {
@@ -119,6 +120,21 @@ namespace Aperture_Desktop_Client.Services
             {
                 // A malformed line just gets skipped, the next frame is a few ms away.
             }
+        }
+
+        static string FindPythonExecutable(string script)
+        {
+            var configured = Environment.GetEnvironmentVariable("APERTURE_PYTHON");
+            if (!string.IsNullOrWhiteSpace(configured)) return configured;
+
+            // Resolve relative to the detector, not the process working directory.
+            var cameraRoot = Directory.GetParent(Path.GetDirectoryName(Path.GetFullPath(script)));
+            if (cameraRoot != null)
+            {
+                var localPython = Path.Combine(cameraRoot.FullName, "venv", "Scripts", "python.exe");
+                if (File.Exists(localPython)) return localPython;
+            }
+            return "python";
         }
 
         static string FindDetectorScript()
