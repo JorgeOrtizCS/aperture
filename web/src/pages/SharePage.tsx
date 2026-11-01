@@ -152,7 +152,10 @@ export default function SharePage() {
 
     if (locationMode === 'precise') {
       if (!area) return { problem: 'Search for a place or click the map to choose where the content can be viewed.' }
-      return { request, precise: area }
+      request.Latitude = area.latitude
+      request.Longitude = area.longitude
+      request.RadiusMeters = area.radiusMeters
+      return { request }
     }
 
     return { request }
@@ -160,7 +163,7 @@ export default function SharePage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    const { request, precise, problem } = buildRequest()
+    const { request, problem } = buildRequest()
     if (problem || !request) {
       setError(problem ?? 'Check the form.')
       return
@@ -169,16 +172,8 @@ export default function SharePage() {
     setError(null)
     try {
       const { id } = await api.share(request)
-      let warning: string | undefined
-      if (precise) {
-        try {
-          await api.setPreciseLocation(id, precise.latitude, precise.longitude, precise.radiusMeters)
-        } catch (err) {
-          warning = `The content was shared, but the precise location could not be saved: ${errorMessage(err)}`
-        }
-      }
       recordActivity('shared', `Shared "${request.Title}"`, `With ${request.Recipient}.`)
-      navigate(`/content/${id}`, { replace: true, state: { created: true, warning } })
+      navigate(`/content/${id}`, { replace: true, state: { created: true } })
     } catch (err) {
       setError(errorMessage(err))
       setBusy(false)

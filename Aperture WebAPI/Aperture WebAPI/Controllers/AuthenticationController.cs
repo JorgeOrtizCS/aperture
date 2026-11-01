@@ -1,13 +1,13 @@
 ﻿using System.Net;
-using Microsoft.AspNetCore.Mvc;
-using Aperture_WebAPI.Infrastructure;
+using System.Net.Http.Headers;
+using System.Web.Http;
 using Aperture_WebAPI.Models;
 using Aperture_WebAPI.Services;
 
 namespace Aperture_WebAPI.Controllers
 {
-    [Route("api/auth")]
-    public class AuthController : ApiControllerBase
+    [RoutePrefix("api/auth")]
+    public class AuthController : ApiController
     {
         private readonly AuthenticationService _authenticationService;
 
@@ -17,14 +17,9 @@ namespace Aperture_WebAPI.Controllers
                 new AuthenticationService();
         }
 
-        /// <summary>Logs in and returns a bearer token valid for 8 hours. Tokens live in the API's memory and stop working when it restarts.</summary>
-        /// <response code="200">Logged in; use Token as the bearer token.</response>
-        /// <response code="401">Invalid username or password.</response>
-        [ProducesResponseType(typeof(LoginResponse), 200)]
-        [ProducesResponseType(typeof(LoginResponse), 401)]
         [HttpPost]
         [Route("login")]
-        public IActionResult Login([FromBody] LoginRequest request)
+        public IHttpActionResult Login(LoginRequest request)
         {
             LoginResponse response =
                 _authenticationService.Login(request);
@@ -39,14 +34,11 @@ namespace Aperture_WebAPI.Controllers
             return Ok(response);
         }
 
-        /// <summary>Invalidates the bearer token sent with this request.</summary>
-        /// <response code="200">Logged out.</response>
-        /// <response code="400">No bearer token was sent.</response>
         [HttpPost]
         [Route("logout")]
-        public IActionResult Logout()
+        public IHttpActionResult Logout()
         {
-            string token = BearerToken.From(Request);
+            string token = GetBearerToken();
 
             if (string.IsNullOrWhiteSpace(token))
             {
@@ -67,6 +59,24 @@ namespace Aperture_WebAPI.Controllers
                 success = true,
                 message = "Logout successful."
             });
+        }
+
+        private string GetBearerToken()
+        {
+            AuthenticationHeaderValue authorization =
+                Request.Headers.Authorization;
+
+            if (authorization == null)
+                return null;
+
+            if (!authorization.Scheme.Equals(
+                    "Bearer",
+                    System.StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return authorization.Parameter;
         }
     }
 }

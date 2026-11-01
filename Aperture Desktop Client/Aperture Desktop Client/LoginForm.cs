@@ -207,7 +207,16 @@ namespace Aperture_Desktop_Client
                    new MainForm(
                        _authenticationService))
             {
-                mainForm.ShowDialog();
+                if (mainForm.ShowDialog() == DialogResult.OK)
+                {
+                    txtPassword.Clear();
+                    lblStatus.Text = string.Empty;
+                    SetLoggingInState(false);
+                    Show();
+                    Activate();
+                    txtPassword.Focus();
+                    return;
+                }
             }
 
             Close();

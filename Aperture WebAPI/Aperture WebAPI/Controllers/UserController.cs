@@ -1,18 +1,16 @@
-using Microsoft.AspNetCore.Mvc;
+using System.Web.Http;
 using Aperture_WebAPI.Filters;
 using Aperture_WebAPI.Infrastructure;
 
 namespace Aperture_WebAPI.Controllers
 {
-    [Route("api/user")]
-    public class UserController : ApiControllerBase
+    [RoutePrefix("api/user")]
+    public class UserController : ApiController
     {
-        /// <summary>Returns the logged-in user.</summary>
-        /// <response code="200">The user's id and username.</response>
         [HttpGet]
         [Route("me")]
         [TokenAuthorize]
-        public IActionResult Me()
+        public IHttpActionResult Me()
         {
             var user = RequestUser.Get();
 

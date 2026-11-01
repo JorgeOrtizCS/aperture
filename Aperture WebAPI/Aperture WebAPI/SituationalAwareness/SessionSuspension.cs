@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
-using Aperture_WebAPI.Infrastructure;
-using Microsoft.AspNetCore.Http;
+using System.Web;
 
 namespace Aperture_WebAPI.SituationalAwareness
 {
@@ -114,7 +113,7 @@ namespace Aperture_WebAPI.SituationalAwareness
             Suspensions.AddOrUpdate(
                 sessionId,
                 _ => new SuspensionState { Source = SourceCheck, Reason = denialReason, SinceUtc = nowUtc },
-                (_, existing) => existing.Source == SourceManual
+                (_, existing) => existing.Source == SourceManual && existing.HoldUntilUtc.HasValue && nowUtc < existing.HoldUntilUtc.Value
                     ? existing
                     : new SuspensionState { Source = SourceCheck, Reason = denialReason, SinceUtc = existing.SinceUtc });
         }
@@ -150,7 +149,7 @@ namespace Aperture_WebAPI.SituationalAwareness
 
         internal static void ClearTransientFailure()
         {
-            HttpContext context = CurrentHttpContext.Current;
+            HttpContext context = HttpContext.Current;
             if (context != null)
             {
                 context.Items.Remove(TransientFailureKey);
@@ -159,7 +158,7 @@ namespace Aperture_WebAPI.SituationalAwareness
 
         internal static void MarkTransientFailure()
         {
-            HttpContext context = CurrentHttpContext.Current;
+            HttpContext context = HttpContext.Current;
             if (context != null)
             {
                 context.Items[TransientFailureKey] = true;
@@ -179,6 +178,7 @@ namespace Aperture_WebAPI.SituationalAwareness
             HeldMessagePrefix,
             "Client IP address changed",
             "Approved device required",
+            "Access has not begun",
             "Country restriction",
             "State/region restriction",
             "City restriction"
@@ -214,7 +214,7 @@ namespace Aperture_WebAPI.SituationalAwareness
 
         private static bool FlaggedRecoverable()
         {
-            HttpContext context = CurrentHttpContext.Current;
+            HttpContext context = HttpContext.Current;
             if (context == null)
             {
                 return false;

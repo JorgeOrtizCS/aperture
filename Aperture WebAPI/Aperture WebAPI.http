@@ -2,10 +2,10 @@
 # and click "Send Request" above each one. Run them top to bottom: later requests use the
 # tokens and ids returned by earlier ones.
 #
-# The plain-HTTP port avoids certificate prompts; https://localhost:44353 also works once the
-# dev certificate is trusted (dotnet dev-certs https --trust).
+# Run the .NET Framework Web API in Visual Studio with IIS Express.
+# Use its HTTPS port and trust the IIS Express development certificate.
 
-@base = http://localhost:5080
+@base = https://localhost:44353
 @sender = alice
 @recipient = bob
 @password = password123

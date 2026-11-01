@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -49,7 +49,7 @@ namespace Aperture_Desktop_Client.Services
 
         public async Task<TResponse> PostAsync<TRequest, TResponse>(
             string endpoint,
-            TRequest request)
+            TRequest request, Models.ClientLocation location = null)
         {
             string json =
                 JsonConvert.SerializeObject(request);
@@ -63,9 +63,7 @@ namespace Aperture_Desktop_Client.Services
                         "application/json"))
                 {
                     HttpResponseMessage response =
-                        await _httpClient.PostAsync(
-                            endpoint,
-                            content);
+                        await SendPostAsync(endpoint, content, location);
 
                     string responseJson =
                         await response.Content
@@ -73,6 +71,23 @@ namespace Aperture_Desktop_Client.Services
 
                     if (!response.IsSuccessStatusCode)
                     {
+                        // Pausing a policy can end the session before its next check.
+                        // Treat that missing session as a denial so the viewer can
+                        // request fresh authorization after the sender resumes access.
+                        if (response.StatusCode == System.Net.HttpStatusCode.NotFound &&
+                            typeof(TResponse) == typeof(Models.SessionResult))
+                            return (TResponse)(object)new Models.SessionResult {
+                                SessionEnded = true, AccessGranted = false, Message = "Content or viewing session is unavailable. Retrying authorization..."
+                            };
+                        // Viewing-policy denials are expected results, including HTTP 403.
+                        // Other callers retain the normal HTTP error handling.
+                        if (response.StatusCode == System.Net.HttpStatusCode.Forbidden &&
+                            typeof(TResponse) == typeof(Models.SessionResult))
+                        {
+                            var denied = JsonConvert.DeserializeObject<Models.SessionResult>(responseJson);
+                            if (denied != null && !denied.AccessGranted && !string.IsNullOrWhiteSpace(denied.Message))
+                                return (TResponse)(object)denied;
+                        }
                         throw new Exception(
                             "API returned an error.\r\n\r\n" +
                             "HTTP Status: " +
@@ -124,6 +139,18 @@ namespace Aperture_Desktop_Client.Services
                     "Error:\r\n" +
                     ex.Message,
                     ex);
+            }
+        }
+
+        private async Task<HttpResponseMessage> SendPostAsync(string endpoint, HttpContent content, Models.ClientLocation location)
+        {
+            using(var message=new HttpRequestMessage(HttpMethod.Post,endpoint)) {
+                message.Content=content;
+                if(location!=null) {
+                    message.Headers.Add("X-Client-Latitude",location.Latitude.ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+                    message.Headers.Add("X-Client-Longitude",location.Longitude.ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+                }
+                return await _httpClient.SendAsync(message);
             }
         }
 

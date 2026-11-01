@@ -29,6 +29,9 @@ export interface SharedContent {
 }
 
 export interface CreateContentRequest {
+  Latitude?: number
+  Longitude?: number
+  RadiusMeters?: number
   Title: string
   Recipient: string
   Body?: string
@@ -45,6 +48,8 @@ export interface CreateContentRequest {
 }
 
 export interface SessionResult {
+  Suspended: boolean
+  SessionEnded: boolean
   SessionId: number
   AccessGranted: boolean
   DeviceVerified: boolean

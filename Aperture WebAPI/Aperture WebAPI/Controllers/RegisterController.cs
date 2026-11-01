@@ -1,23 +1,19 @@
 using System;
-using Microsoft.Data.SqlClient;
+using MySql.Data.MySqlClient;
 using System.Net;
-using Microsoft.AspNetCore.Mvc;
+using System.Web.Http;
 using Aperture_WebAPI.Config;
 using Aperture_WebAPI.Models;
 using Aperture_WebAPI.Services;
 
 namespace Aperture_WebAPI.Controllers
 {
-    [Route("api/register")]
-    public class RegisterController : ApiControllerBase
+    [RoutePrefix("api/register")]
+    public class RegisterController : ApiController
     {
-        /// <summary>Creates an account. Password must be at least 8 characters; names and username at most 100.</summary>
-        /// <response code="200">Account created.</response>
-        /// <response code="400">Validation failed; Message says why.</response>
-        /// <response code="409">Username already exists.</response>
         [HttpPost]
         [Route("")]
-        public IActionResult Register([FromBody] RegisterRequest request)
+        public IHttpActionResult Register(RegisterRequest request)
         {
             if (request == null)
                 return BadRequest("Invalid request.");
@@ -40,15 +36,15 @@ namespace Aperture_WebAPI.Controllers
                 PasswordService.HashPassword(
                     request.Password);
 
-            using (SqlConnection connection = new SqlConnection(ConnectionStrings.Database))
+            using (MySqlConnection connection = new MySqlConnection(ConnectionStrings.Database))
             {
                 connection.Open();
 
-                const string sql = @"INSERT INTO Users(FirstName, LastName, Username, PasswordHash)
-                    VALUES(@FirstName, @LastName, @Username, @PasswordHash)";
+                const string sql = @"INSERT INTO Users(First_Name, Last_Name, username, PasswordHash, Date_created)
+                    VALUES(@FirstName, @LastName, @Username, @PasswordHash, UTC_TIMESTAMP())";
 
-                using (SqlCommand command =
-                       new SqlCommand(sql, connection))
+                using (MySqlCommand command =
+                       new MySqlCommand(sql, connection))
                 {
                     command.Parameters.AddWithValue(
                         "@Username",
@@ -65,10 +61,9 @@ namespace Aperture_WebAPI.Controllers
                     {
                         command.ExecuteNonQuery();
                     }
-                    catch (SqlException ex)
+                    catch (MySqlException ex)
                     {
-                        if (ex.Number == 2601 ||
-                            ex.Number == 2627)
+                        if (ex.Number == 1062)
                         {
                             return Content(
                                 HttpStatusCode.Conflict,

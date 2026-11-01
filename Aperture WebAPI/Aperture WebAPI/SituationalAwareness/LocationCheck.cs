@@ -1,14 +1,13 @@
 using System;
 using System.Globalization;
-using Aperture_WebAPI.Infrastructure;
-using Microsoft.AspNetCore.Http;
+using System.Web;
 using Aperture_WebAPI.Services;
 using Newtonsoft.Json;
 
 namespace Aperture_WebAPI.SituationalAwareness
 {
     /// <summary>
-    /// What a sender can require for location. Stored as JSON in AccessPolicy.RequiredLocation.
+    /// What a sender can require for location. Stored as JSON in AccessPolicy.Requirements.Location.
     /// Either coarse (Country/Region/City, verified by IP lookup) or precise (a center point plus a
     /// radius in meters, verified against the client's own GPS fix). The JSON for coarse policies is
     /// identical to the existing LocationPolicy shape, so older rows keep working unchanged.
@@ -33,7 +32,7 @@ namespace Aperture_WebAPI.SituationalAwareness
         private const double EarthRadiusMeters = 6371000;
 
         /// <summary>
-        /// Builds the JSON to store in AccessPolicy.RequiredLocation, or null when the sender set no
+        /// Builds the JSON to store in AccessPolicy.Requirements.Location, or null when the sender set no
         /// location restriction. Precise (all three of latitude, longitude, radius) wins over coarse.
         /// </summary>
         public static string BuildPolicyJson(
@@ -111,7 +110,7 @@ namespace Aperture_WebAPI.SituationalAwareness
 
             double? latitude = null;
             double? longitude = null;
-            HttpContext context = CurrentHttpContext.Current;
+            HttpContext context = HttpContext.Current;
             if (context != null)
             {
                 latitude = ParseHeader(context.Request.Headers["X-Client-Latitude"]);
@@ -186,7 +185,7 @@ namespace Aperture_WebAPI.SituationalAwareness
 
             return verification.Success && verification.Matches
                 ? ConditionResult.Pass()
-                : ConditionResult.Fail(verification.Message, true);
+                : ConditionResult.Fail(verification.Message, verification.Success);
         }
 
         private static ConditionResult VerifyPrecise(
@@ -249,7 +248,7 @@ namespace Aperture_WebAPI.SituationalAwareness
             double h = Math.Pow(Math.Sin(dLat / 2), 2) +
                        Math.Cos(rLat1) * Math.Cos(rLat2) * Math.Pow(Math.Sin(dLon / 2), 2);
 
-            return 2 * EarthRadiusMeters * Math.Asin(Math.Sqrt(h));
+            return 2 * EarthRadiusMeters * Math.Asin(Math.Sqrt(Math.Max(0, Math.Min(1, h))));
         }
 
         private static double ToRadians(double degrees)

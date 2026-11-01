@@ -4,7 +4,7 @@ React web client for Aperture. It follows the mobile app's design and flow (welc
 
 ## Run it
 
-1. Start the Web API and its database. See [Aperture WebAPI/README.md](../Aperture%20WebAPI/README.md); the API must answer on `http://localhost:5080`.
+1. Start the Web API and its database. See [Aperture WebAPI/README.md](../Aperture%20WebAPI/README.md); run it under IIS Express at `https://localhost:44353`.
 2. Start the web app:
 
    ```bash
@@ -15,7 +15,9 @@ React web client for Aperture. It follows the mobile app's design and flow (welc
 
 3. Open <http://localhost:5173>.
 
-The dev server proxies `/api` to the Web API, so no CORS setup is needed. To point the proxy at another address, set `APERTURE_API_URL` (for example `APERTURE_API_URL=http://localhost:5080 npm run dev`).
+The proxy accepts the local IIS Express development certificate and sets its upstream Host header to match the IIS binding. Precise location is saved in the same share request as the content.
+
+The dev server proxies `/api` to the Web API, so no CORS setup is needed. To point the proxy at another address, set `APERTURE_API_URL` (for example `APERTURE_API_URL=https://localhost:44353 npm run dev`).
 
 Other scripts: `npm run build` (type-check and production build into `dist/`), `npm run lint`, and `npm run preview`.
 
@@ -36,7 +38,7 @@ Other scripts: `npm run build` (type-check and production build into `dist/`), `
 - Opening content creates a viewing session (`POST /api/content/{id}/sessions`) with this browser's device key and, when allowed, its GPS position.
 - Every 5 seconds the viewer rechecks the session (`POST .../check`), sending the latest position. The content is shown only while the server grants access:
   - When a condition fails and can recover, for example the viewer leaves the allowed area, the content is hidden and comes back automatically on the next passing check.
-  - When the content is paused, revoked or expires, the session ends.
+  - Expiry suspends an existing session for five minutes so the sender can extend it; otherwise it ends. Pause and revocation end the session immediately.
 - "Hide for 30 seconds" suspends the session on the server (`POST /api/situational/sessions/{id}/suspend`).
 - The content is also hidden while the browser window is in the background, it can't be printed, and dragging and the right-click menu are blocked. A browser cannot block screenshots or a photo of the screen. Content with "Screenshot protection" is therefore refused by the server in the web viewer, as in the desktop client.
 
@@ -51,4 +53,4 @@ Other scripts: `npm run build` (type-check and production build into `dist/`), `
 ## Not supported yet
 
 - The mobile prototype's download and resharing toggles, and its 3- and 5-view limits, have no API behind them, so they are not offered.
-- The API has no endpoint for a single item's full policy. The status page shows what the API returns: status, sharing state and time window.
+- The web viewer does not claim camera-policy support. Content that requires camera detection must be viewed with the compatible desktop client.

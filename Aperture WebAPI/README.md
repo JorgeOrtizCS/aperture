@@ -1,53 +1,48 @@
-# Aperture Web API — SQL Server diagram edition
+# Aperture Web API
 
-This version targets **ApertureDB** created by `Aperture_Diagram_Database.sql` (included beside the solution). The project targets **.NET 8 / ASP.NET Core** and runs on macOS, Linux and Windows. Back up `App_Data/ContentFiles` (created automatically on first share, under the project folder) **with** the SQL database: SQL holds metadata, not file bytes.
+ASP.NET Web API 2 on **.NET Framework 4.7.2**, with MySQL and Newtonsoft.Json. Open `Aperture WebAPI.sln` in Visual Studio on Windows, restore NuGet packages, and run with IIS Express (default `https://localhost:44353/`). Set the `Database` connection string in `Aperture WebAPI/Web.config` to the existing database. The hosted tables live in **APERTURE_DB**, not the empty hosted default `railway`.
 
-## Running locally
+No database migration is required. The API uses the existing schema in `../db/schema.sql`, with all viewing restrictions stored in **AccessPolicy.Requirements**. The SQL Server diagram and camera migration scripts are historical. Back up `App_Data/ContentFiles` with the database: MySQL stores metadata, while that directory stores the file bytes.
 
-Requirements: the .NET 8 SDK and Docker Desktop. On Apple Silicon, Docker runs the x86-64 SQL Server image through Rosetta.
+## Viewing conditions
 
-1. Start SQL Server and create the schema: `docker compose up -d`, run in this folder. On the first start, the one-shot `db-init` service runs `Aperture_Diagram_Database.sql`; on later starts it sees the tables and does nothing. `docker compose down` stops it and keeps the data; `docker compose down -v` deletes the data too.
-2. Run the API: `dotnet run --project "Aperture WebAPI"`. It listens on `https://localhost:44353` (the URL the desktop client expects) and `http://localhost:5080`. For HTTPS without warnings, trust the development certificate once with `dotnet dev-certs https --trust`.
-3. Open Swagger at <http://localhost:5080/swagger> (Development only) to browse and try every route; the OpenAPI spec is at `/swagger/v1/swagger.json`. Log in with `POST /api/auth/login`, click **Authorize**, and paste the `Token`. You can also use `Aperture WebAPI.http` (VS Code REST Client extension), or point the desktop client at the API.
+Senders share text or PNG/JPEG images (up to 5 MB), setting an optional UTC start/expiry window, positive maximum views per recipient, device approval, location and camera requirements. Null maximum views means unlimited. Existing client request fields remain supported.
 
-In VS Code, the **Web API (ASP.NET Core)** launch configuration builds and debugs the API, and the `webapi: start database` task runs step 1.
+The location rule can use country/region/city (IP geolocation) or latitude, longitude and radius in meters (device-reported location). Precise location is saved atomically with the original share. Recipients send `X-Client-Latitude` and `X-Client-Longitude` on open and every check. Missing or invalid coordinates deny access. Distances use the haversine formula; being outside the area suspends an open session until a later check passes.
 
-The Development connection string in `appsettings.Development.json` uses the container's local-only `sa` login. The password is a development default shared with `docker-compose.yml`; override both together with `APERTURE_SA_PASSWORD` and `ConnectionStrings__Database`. `appsettings.json` keeps the Windows default (`Trusted_Connection` to a local SQL Server). Any environment can override the `Database` connection string and `IpGeolocationUrl` with environment variables.
+Existing sessions are checked every five seconds. A recoverable failure hides the content but retains the session ID and view count. Passing every condition restores the same session. Responses explicitly report `Suspended` and `SessionEnded`. The suspension status endpoint reports the reason, source and hold deadline.
 
-The UI supports account creation and login, text and PNG/JPEG sharing (maximum image size 5 MB), recipient dashboard, start/expiry time, optional one-view limit, approved-device requirement, viewing sessions bound to the opening client IP, rechecks every five seconds, owner pause/resume and revocation, and request/audit and environment-check records. Camera viewing/capture is not included. Viewing images is for already-selected local image files.
+An owner can edit the time window or precise area after sharing; JSON updates preserve camera and other rules. On expiry, an existing session hides its content for a **five-minute extension grace period**. An owner extension during that time lets the next passing check restore it. New sessions cannot open expired content. After the grace period, the session ends.
 
-The diagram has no token table. Login bearer tokens and the viewing-session-to-device association are held **in the API process's memory**; restarting the API invalidates logins and viewers. Run a single instance for the demo. `MaximumViews` is `BIT` in the supplied diagram, so `1` means **one view** and `0` means unlimited. A recipient can register a device, but registration starts untrusted. The locally stored device identifier is a demo identifier and can be copied; it is not hardware attestation. An administrator can explicitly approve it with SQL (SSMS, Azure Data Studio, or `docker compose exec db /opt/mssql-tools18/bin/sqlcmd -C -U sa`):
+Senders or recipients can manually suspend a session for 1?3600 seconds (default 30). A manual hold never bypasses revocation, invalid policies or terminal expiry. Pause and revocation end open sessions immediately. An IP change, missing device approval, geographic mismatch or missing GPS fix can recover; malformed policies, unknown JSON versions, unsupported camera clients, screenshot requirements and geolocation-provider failures remain denied and terminate an existing session.
 
-```sql
-USE ApertureDB;
-SELECT DeviceID, UserID, DeviceName, DeviceIdentifier, IsTrusted FROM dbo.TrustedDevices;
--- Review the user and device first; replace the ID below.
-UPDATE dbo.TrustedDevices SET IsTrusted = 1 WHERE DeviceID = 123;
-```
-
-The desktop cannot reliably prove location or prevent screenshots. If a policy's `RequiredLocation` or `ScreenshotRestriction` is set in SQL or by another client, this API **denies** viewing rather than claiming that it verified the requirement. Text and image bytes already displayed or copied cannot be remotely erased; recurring checks control continued display in this app, not previously obtained copies. Do not expose the server's `App_Data` directory or use this prototype to protect real confidential documents.
+Camera rules come from the sender, are distributed by the API and enforced by the desktop. Compatible clients declare `CameraPolicyVersion = 1`. The React client does not claim camera support, so it cannot open camera-restricted content. Run `../camera/setup.ps1` once to set up the desktop detector; see the desktop README.
 
 ## Routes
 
-- `POST /api/register`: `{ "firstName":"A", "lastName":"B", "username":"ab", "password":"..." }`
-- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/user/me`.
-- Authenticated `GET /api/content` and `POST /api/content` to list and share.
-- Authenticated `POST /api/content/{id}/policy` to pause/resume and `POST /api/content/{id}/revoke` (owner only).
-- Authenticated `POST /api/devices` registers the current desktop device as **untrusted**.
-- Authenticated `POST /api/content/{id}/sessions` opens a recipient session, `POST /api/content/sessions/{sessionId}/check` rechecks, `POST /api/content/sessions/{sessionId}/end` closes.
+All routes except registration and login require a bearer token.
 
-Run this version with the *diagram* database script, not the previous prototype schema drafts. Previous content data is not migrated.
+- `POST /api/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/user/me`.
+- `GET /api/content`, `POST /api/content`, `GET /api/content/capabilities`.
+- `POST /api/content/{id}/policy` (owner pause/resume), `POST /api/content/{id}/revoke` (owner).
+- `POST /api/devices` registers a client key as untrusted; repeated registration preserves approval. The existing schema stores `Desktop:<guid>` in `TrustedDevices.DeviceType`.
+- `POST /api/content/{id}/sessions`, `POST /api/content/sessions/{sessionId}/check`, `POST /api/content/sessions/{sessionId}/end`.
+- `POST /api/situational/content/{id}/time` (owner, `StartTime`/`ExpiresAt`, null removes a limit); `GET` on the same route checks the window for sender or recipient.
+- `POST /api/situational/content/{id}/location` (owner, `Latitude`/`Longitude`/`RadiusMeters`).
+- `POST /api/situational/sessions/{sessionId}/suspend` (sender or recipient, optional `Reason` and `DurationSeconds`); `GET /api/situational/sessions/{sessionId}/suspension`.
 
-## Continuous IP verification
+## State and deployment
 
-When a recipient opens content, the API records the client IP observed by the server for that in-memory viewing session. Every `/check` request must arrive from the same normalized address. A change writes an `EnvironmentCheck` row with `LocationVerified = 0`, `PolicySatisfied = 0`, and `ViolationType = 'Client IP address changed during the viewing session.'`; the API then revokes that viewing session and the desktop closes its viewer. Loopback IPv4 and IPv6 are normalized together for local testing.
+Login tokens, session IP/device bindings and suspension details live in one IIS worker's memory. An app-pool recycle invalidates them. Use one worker for this prototype. All metadata writes and environment checks are parameterized MySQL commands. The server observes the socket peer IP and does not trust forwarded headers; a proxy deployment needs an explicit trusted-proxy design. The Vite development proxy therefore binds sessions to its own peer address.
 
-The implementation deliberately does **not** trust `X-Forwarded-For`. If the API is later deployed behind a reverse proxy, the API will see the proxy IP until a specific trusted-proxy configuration is designed. Do not blindly accept forwarded headers, because clients can spoof them. Mobile networks, VPN changes, DHCP changes, and switching Wi-Fi may legitimately change a public IP and will terminate the session. IP verification is an additional signal, not proof of identity or physical location. The binding is in memory because the approved schema has no session-IP column; an API restart invalidates it just like the existing in-memory login/session state.
+The `IpGeolocationUrl` setting defaults to ipapi.co over HTTPS, caching successful results for 15 minutes. Private/loopback development requests use the API machine's outbound public IP. Lookup errors deny access. IP and client-reported GPS positions are approximate and spoofable; they are not physical-location attestation. The desktop cannot prevent operating-system screenshots, so screenshot-restricted content is refused. Previously copied bytes cannot be recalled.
 
-## Geographic restrictions by IP
+## Validation
 
-The Share dialog accepts an optional country, state/region, and city. Country accepts either a name such as `United States` or a code such as `US`; state/region accepts a full name such as `Florida` or a provider region code such as `FL`; city is an exact case-insensitive name. Blank levels are unrestricted. The policy is JSON stored in `AccessPolicy.RequiredLocation` and is evaluated on session open and every five-second check.
+```powershell
+msbuild "Aperture WebAPI.sln" /t:Build /p:Configuration=Debug
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\SituationalAwareness.Tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\Run-SituationalApiTests.ps1
+```
 
-The API looks up the server-observed IP through the HTTPS endpoint configured by `IpGeolocationUrl` in `appsettings.json`. The included development setting uses ipapi.co and caches a result for 15 minutes to avoid a lookup every five seconds. If the provider times out, rejects the IP, exhausts its quota, returns invalid data, or the geographic fields do not match, access fails closed and the session is revoked. For localhost/private-LAN testing, the provider sees the API machine's outbound public IP because private addresses cannot be geolocated. In a real direct deployment, the recipient's public source IP is used.
-
-The free provider is intended only for development/testing and documents a quota. Replace `IpGeolocationUrl` or the service implementation for production. The server intentionally ignores `X-Forwarded-For`; deployment behind a reverse proxy requires an explicit trusted-proxy design. IP location is approximate and may be wrong for VPNs, mobile networks, corporate gateways, or ISP routing. It does not prove a physical address.
+The unit checks cover GPS validation, time windows, expiry grace, suspension and JSON preservation of camera policies. The HTTP suite requires local MySQL 8, IIS Express and Python; it creates an isolated temporary database instance and site, tests real registration/sharing/viewing endpoints, then stops them and removes their files. It never connects to or modifies the database configured in Web.config. Paths can be supplied through the script parameters. The old desktop `CameraPolicy.Api.Tests.ps1` targets the historical SQL Server schema and should not be run against this version.

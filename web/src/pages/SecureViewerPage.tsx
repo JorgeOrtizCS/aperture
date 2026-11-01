@@ -161,7 +161,7 @@ export default function SecureViewerPage() {
           setContent(result)
           setHoldUntil(null)
           setLiveState('granted', result.Message)
-        } else if (SESSION_ENDING.test(result.Message)) {
+        } else if (result.SessionEnded || SESSION_ENDING.test(result.Message)) {
           end(result.Message)
           return
         } else {

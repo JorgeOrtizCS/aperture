@@ -1,4 +1,4 @@
-using Aperture_WebAPI.Models;
+﻿using Aperture_WebAPI.Models;
 
 namespace Aperture_WebAPI.Infrastructure
 {
@@ -10,7 +10,7 @@ namespace Aperture_WebAPI.Infrastructure
             ApplicationUser user)
         {
             var context =
-                CurrentHttpContext.Current;
+                System.Web.HttpContext.Current;
 
             if (context != null)
             {
@@ -21,7 +21,7 @@ namespace Aperture_WebAPI.Infrastructure
         public static ApplicationUser Get()
         {
             var context =
-                CurrentHttpContext.Current;
+                System.Web.HttpContext.Current;
 
             if (context == null)
                 return null;
