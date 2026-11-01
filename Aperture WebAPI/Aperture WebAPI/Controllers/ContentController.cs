@@ -14,7 +14,6 @@ using Aperture_WebAPI.Infrastructure;
 using Aperture_WebAPI.Models;
 using Aperture_WebAPI.Services;
 using Newtonsoft.Json;
-using MySql.Data.MySqlClient;
 
 namespace Aperture_WebAPI.Controllers {
  [RoutePrefix("api/content"),TokenAuthorize]
@@ -37,24 +36,24 @@ namespace Aperture_WebAPI.Controllers {
   [HttpGet,Route("")]
   public IHttpActionResult List() {
    var items=new List<SharedContent>();
-   using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var c=new MySqlCommand(@"SELECT c.ContentID,c.FileName,u.Username,c.UploadDate,CAST(0 AS bit),r.AccessStatus,CAST(NULL AS varchar(100)) AS Recipient,p.PolicyStatus FROM ContentRecipient r JOIN Content c ON c.ContentID=r.ContentID JOIN Users u ON u.UserID=c.SenderID JOIN AccessPolicy p ON p.ContentID=c.ContentID WHERE r.UserID=@user UNION ALL SELECT c.ContentID,c.FileName,u.Username,c.UploadDate,CAST(1 AS bit),r.AccessStatus,recipient.Username,p.PolicyStatus FROM ContentRecipient r JOIN Content c ON c.ContentID=r.ContentID JOIN Users u ON u.UserID=c.SenderID JOIN Users recipient ON recipient.UserID=r.UserID JOIN AccessPolicy p ON p.ContentID=c.ContentID WHERE c.SenderID=@user ORDER BY UploadDate DESC",db)) {
+   using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var c=new MySqlCommand(@"SELECT c.ContentID,c.File_Name,u.Username,c.Upload_Date,0,r.Access_Status,NULL AS Recipient,p.PolicyStatus FROM ContentRecipient r JOIN Content c ON c.ContentID=r.ContentID JOIN Users u ON u.UserID=c.SenderID JOIN AccessPolicy p ON p.ContentID=c.ContentID WHERE r.UserID=@user UNION ALL SELECT c.ContentID,c.File_Name,u.Username,c.Upload_Date,1,r.Access_Status,recipient.Username,p.PolicyStatus FROM ContentRecipient r JOIN Content c ON c.ContentID=r.ContentID JOIN Users u ON u.UserID=c.SenderID JOIN Users recipient ON recipient.UserID=r.UserID JOIN AccessPolicy p ON p.ContentID=c.ContentID WHERE c.SenderID=@user ORDER BY Upload_Date DESC",db)) {
     Param(c,"@user",RequestUser.Get().Id);using(var r=c.ExecuteReader())while(r.Read()) {items.Add(new SharedContent {Id=r.GetInt32(0),Title=r.GetString(1),Owner=r.GetString(2),CreatedAt=r.GetDateTime(3),Mine=r.GetBoolean(4),Status=r.GetString(5),Recipient=r.IsDBNull(6)?null:r.GetString(6),PolicyStatus=r.GetString(7)});}
    }}return Ok(items);
   }
   [HttpPost,Route("")]
   public IHttpActionResult Create(CreateContentRequest request) {
    if(request==null || string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Recipient) || request.Title.Length>160 ||
-      (request.MaxViews.HasValue && request.MaxViews!=1) ||
+      (request.MaxViews.HasValue && request.MaxViews<1) ||
       (request.StartTime.HasValue && request.ExpiresAt.HasValue && request.ExpiresAt<=request.StartTime) ||
       (request.ExpiresAt.HasValue && request.ExpiresAt<=DateTime.UtcNow))
-      return BadRequest("Title, recipient and valid policy are required. Maximum views is unlimited or one.");
+      return BadRequest("Title, recipient and valid policy are required. Maximum views must be positive or unlimited.");
    var camera=request.CameraRestrictions ?? new CameraRestrictions();
    if(!camera.Enabled) {camera.BlockPhones=false;camera.BlockMultiplePeople=false;camera.RequireViewer=false;}
    byte[] bytes;string fileType;
-   string requiredLocation=null;
+   LocationPolicy location=null;
    if(!String.IsNullOrWhiteSpace(request.AllowedCountry) || !String.IsNullOrWhiteSpace(request.AllowedRegion) || !String.IsNullOrWhiteSpace(request.AllowedCity)) {
-    requiredLocation=JsonConvert.SerializeObject(new LocationPolicy {Country=TrimOrNull(request.AllowedCountry),Region=TrimOrNull(request.AllowedRegion),City=TrimOrNull(request.AllowedCity)});
-    if(requiredLocation.Length>255)return BadRequest("The geographic restriction is too long.");
+    location=new LocationPolicy {Country=TrimOrNull(request.AllowedCountry),Region=TrimOrNull(request.AllowedRegion),City=TrimOrNull(request.AllowedCity)};
+
    }
    if(!string.IsNullOrWhiteSpace(request.FileDataBase64)) {
     if(request.FileType!="image/png" && request.FileType!="image/jpeg")return BadRequest("Only PNG or JPEG images are supported.");
@@ -69,9 +68,10 @@ namespace Aperture_WebAPI.Controllers {
    int newId=0;bool committed=false;
    try{using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var tx=db.BeginTransaction()) {try {
     int recipient;using(var c=Command(db,tx,"SELECT UserID FROM Users WHERE Username=@name AND UserID<>@sender")) {Param(c,"@name",request.Recipient.Trim());Param(c,"@sender",RequestUser.Get().Id);var v=c.ExecuteScalar();if(v==null){tx.Rollback();return BadRequest("Recipient not found.");}recipient=(int)v;}
-    using(var c=Command(db,tx,"INSERT INTO Content(SenderID,FileType,FileName) OUTPUT INSERTED.ContentID VALUES(@sender,@type,@name)")) {Param(c,"@sender",RequestUser.Get().Id);Param(c,"@type",fileType);Param(c,"@name",request.Title.Trim());newId=(int)c.ExecuteScalar();}
-    using(var c=Command(db,tx,"INSERT INTO ContentRecipient(UserID,ContentID,AccessStatus) VALUES(@recipient,@id,'Active')")) {Param(c,"@recipient",recipient);Param(c,"@id",newId);c.ExecuteNonQuery();}
-    using(var c=Command(db,tx,"INSERT INTO AccessPolicy(ContentID,StartTime,ExpirationDate,RequiredLocation,TrustedDevice,MaximumViews,ScreenshotRestriction,CameraDetectionEnabled,BlockPhones,BlockMultiplePeople,RequireViewer) VALUES(@id,@start,@expiry,@location,@trusted,@views,@screen,@camera,@phones,@people,@viewer)")) {Param(c,"@id",newId);Param(c,"@start",request.StartTime);Param(c,"@expiry",request.ExpiresAt);Param(c,"@location",requiredLocation);Param(c,"@trusted",request.RequireTrustedDevice);Param(c,"@views",request.MaxViews==1);Param(c,"@screen",request.ScreenshotRestriction);Param(c,"@camera",camera.Enabled);Param(c,"@phones",camera.BlockPhones);Param(c,"@people",camera.BlockMultiplePeople);Param(c,"@viewer",camera.RequireViewer);c.ExecuteNonQuery();}
+    using(var c=Command(db,tx,"INSERT INTO Content(SenderID,File_Type,File_Name,Upload_Date) VALUES(@sender,@type,@name,UTC_TIMESTAMP())")) {Param(c,"@sender",RequestUser.Get().Id);Param(c,"@type",fileType);Param(c,"@name",request.Title.Trim());c.ExecuteNonQuery();newId=checked((int)c.LastInsertedId);}
+    using(var c=Command(db,tx,"INSERT INTO ContentRecipient(UserID,ContentID,Access_Status,Date_Shared) VALUES(@recipient,@id,'Active',UTC_TIMESTAMP())")) {Param(c,"@recipient",recipient);Param(c,"@id",newId);c.ExecuteNonQuery();}
+    var requirements=new ViewingRequirements {StartTime=request.StartTime,ExpiresAt=request.ExpiresAt,MaxViews=request.MaxViews,RequireTrustedDevice=request.RequireTrustedDevice,ScreenshotRestriction=request.ScreenshotRestriction,Location=location,CameraRestrictions=camera};
+    using(var c=Command(db,tx,"INSERT INTO AccessPolicy(ContentID,PolicyStatus,Requirements,DateCreated) VALUES(@id,'Active',@requirements,UTC_TIMESTAMP())")) {Param(c,"@id",newId);Param(c,"@requirements",JsonConvert.SerializeObject(requirements));c.ExecuteNonQuery();}
     File.WriteAllBytes(StoragePath(newId),bytes);
     tx.Commit();committed=true;return Ok(new {id=newId});
    }catch{tx.Rollback();throw;}}}}
@@ -90,16 +90,16 @@ namespace Aperture_WebAPI.Controllers {
   public IHttpActionResult UpdatePolicy(int id,PolicyUpdate request) {
    if(request==null || (request.Status!="Active" && request.Status!="Paused"))return BadRequest("Status must be Active or Paused.");
    using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var tx=db.BeginTransaction()) {try {
-    using(var c=Command(db,tx,"UPDATE p SET PolicyStatus=@status FROM AccessPolicy p JOIN Content c ON c.ContentID=p.ContentID WHERE c.ContentID=@id AND c.SenderID=@owner")) {Param(c,"@status",request.Status);Param(c,"@id",id);Param(c,"@owner",RequestUser.Get().Id);if(c.ExecuteNonQuery()==0){tx.Rollback();return NotFound();}}
-    if(request.Status=="Paused")using(var c=Command(db,tx,"UPDATE ViewingSession SET SessionStatus='Revoked',SessionEnd=GETUTCDATE() WHERE ContentID=@id AND SessionStatus='Active'")){Param(c,"@id",id);c.ExecuteNonQuery();}
+    using(var c=Command(db,tx,"UPDATE AccessPolicy p JOIN Content c ON c.ContentID=p.ContentID SET p.PolicyStatus=@status WHERE c.ContentID=@id AND c.SenderID=@owner")) {Param(c,"@status",request.Status);Param(c,"@id",id);Param(c,"@owner",RequestUser.Get().Id);if(c.ExecuteNonQuery()==0){tx.Rollback();return NotFound();}}
+    if(request.Status=="Paused")using(var c=Command(db,tx,"UPDATE ViewingSession s JOIN ContentRecipient r ON r.RecipientID=s.RecipientID SET s.Session_Status='Revoked',s.Session_End=UTC_TIMESTAMP() WHERE r.ContentID=@id AND Session_Status='Active'")){Param(c,"@id",id);c.ExecuteNonQuery();}
     tx.Commit();return Ok(new {status=request.Status});
    }catch{tx.Rollback();throw;}}}
   }
   [HttpPost,Route("{id:int}/revoke")]
   public IHttpActionResult Revoke(int id) {
    using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var tx=db.BeginTransaction()) {try {
-    using(var c=Command(db,tx,"UPDATE r SET AccessStatus='Revoked' FROM ContentRecipient r JOIN Content c ON c.ContentID=r.ContentID WHERE c.ContentID=@id AND c.SenderID=@owner")) {Param(c,"@id",id);Param(c,"@owner",RequestUser.Get().Id);if(c.ExecuteNonQuery()==0){tx.Rollback();return NotFound();}}
-    using(var c=Command(db,tx,"UPDATE ViewingSession SET SessionStatus='Revoked',SessionEnd=GETUTCDATE() WHERE ContentID=@id AND SessionStatus='Active'")) {Param(c,"@id",id);c.ExecuteNonQuery();}
+    using(var c=Command(db,tx,"UPDATE ContentRecipient r JOIN Content c ON c.ContentID=r.ContentID SET r.Access_Status='Revoked' WHERE c.ContentID=@id AND c.SenderID=@owner")) {Param(c,"@id",id);Param(c,"@owner",RequestUser.Get().Id);if(c.ExecuteNonQuery()==0){tx.Rollback();return NotFound();}}
+    using(var c=Command(db,tx,"UPDATE ViewingSession s JOIN ContentRecipient r ON r.RecipientID=s.RecipientID SET s.Session_Status='Revoked',s.Session_End=UTC_TIMESTAMP() WHERE r.ContentID=@id AND Session_Status='Active'")) {Param(c,"@id",id);c.ExecuteNonQuery();}
     tx.Commit();return Ok(new {success=true});
    }catch{tx.Rollback();throw;}}}
   }
@@ -109,9 +109,9 @@ namespace Aperture_WebAPI.Controllers {
    string currentIp=GetRemoteIp(Request);
    if(currentIp==null)return Content(HttpStatusCode.Forbidden,new SessionResult {AccessGranted=false,Message="The API could not verify the client IP address."});
    using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var tx=db.BeginTransaction(IsolationLevel.Serializable)) {try {
-    int recipient;using(var c=Command(db,tx,"SELECT RecipientID FROM ContentRecipient WITH (UPDLOCK,HOLDLOCK) WHERE ContentID=@id AND UserID=@user AND AccessStatus='Active'")) {Param(c,"@id",id);Param(c,"@user",RequestUser.Get().Id);var v=c.ExecuteScalar();if(v==null){tx.Rollback();return NotFound();}recipient=(int)v;}
+    int recipient;using(var c=Command(db,tx,"SELECT RecipientID FROM ContentRecipient WHERE ContentID=@id AND UserID=@user AND Access_Status='Active' FOR UPDATE")) {Param(c,"@id",id);Param(c,"@user",RequestUser.Get().Id);var v=c.ExecuteScalar();if(v==null){tx.Rollback();return NotFound();}recipient=(int)v;}
     var result=Evaluate(db,tx,id,recipient,request.DeviceKey,currentIp,false,request.CameraPolicyVersion);if(!result.AccessGranted){tx.Commit();return Content(HttpStatusCode.Forbidden,result);}
-    using(var c=Command(db,tx,"INSERT INTO ViewingSession(RecipientID,ContentID) OUTPUT INSERTED.SessionID VALUES(@recipient,@id)")) {Param(c,"@recipient",recipient);Param(c,"@id",id);result.SessionId=(int)c.ExecuteScalar();}
+    using(var c=Command(db,tx,"INSERT INTO ViewingSession(RecipientID,Session_Start,Session_Status) VALUES(@recipient,UTC_TIMESTAMP(),'Active')")) {Param(c,"@recipient",recipient);c.ExecuteNonQuery();result.SessionId=checked((int)c.LastInsertedId);}
     RecordCheck(db,tx,result.SessionId,true,true,result.DeviceVerified,null);tx.Commit();
     SessionBindings[result.SessionId]=new SessionBinding {DeviceKey=request.DeviceKey,IpAddress=currentIp,CameraPolicyVersion=request.CameraPolicyVersion};
     return Ok(result);
@@ -121,7 +121,7 @@ namespace Aperture_WebAPI.Controllers {
   public IHttpActionResult Check(int sessionId) {
    SessionBinding binding;if(!SessionBindings.TryGetValue(sessionId,out binding))return Content(HttpStatusCode.Forbidden,new SessionResult {AccessGranted=false,Message="Session expired; open the content again."});
    using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var tx=db.BeginTransaction(IsolationLevel.Serializable)) {try {
-    int id,recipient;using(var c=Command(db,tx,@"SELECT s.ContentID,s.RecipientID FROM ViewingSession s WITH (UPDLOCK,HOLDLOCK) JOIN ContentRecipient r ON r.RecipientID=s.RecipientID WHERE s.SessionID=@session AND r.UserID=@user AND s.SessionStatus='Active'")) {Param(c,"@session",sessionId);Param(c,"@user",RequestUser.Get().Id);using(var r=c.ExecuteReader()){if(!r.Read()){tx.Rollback();return NotFound();}id=r.GetInt32(0);recipient=r.GetInt32(1);}}
+    int id,recipient;using(var c=Command(db,tx,@"SELECT r.ContentID,s.RecipientID FROM ViewingSession s JOIN ContentRecipient r ON r.RecipientID=s.RecipientID WHERE s.SessionID=@session AND r.UserID=@user AND s.Session_Status='Active' FOR UPDATE")) {Param(c,"@session",sessionId);Param(c,"@user",RequestUser.Get().Id);using(var r=c.ExecuteReader()){if(!r.Read()){tx.Rollback();return NotFound();}id=r.GetInt32(0);recipient=r.GetInt32(1);}}
     string currentIp=GetRemoteIp(Request);
     bool ipVerified=currentIp!=null && String.Equals(binding.IpAddress,currentIp,StringComparison.OrdinalIgnoreCase);
     var result=ipVerified ? Evaluate(db,tx,id,recipient,binding.DeviceKey,currentIp,true,binding.CameraPolicyVersion) : Deny("Client IP address changed during the viewing session.");
@@ -132,10 +132,10 @@ namespace Aperture_WebAPI.Controllers {
   }
   [HttpPost,Route("sessions/{sessionId:int}/end")]
   public IHttpActionResult End(int sessionId) {
-   using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var c=new MySqlCommand(@"UPDATE s SET SessionStatus='Ended',SessionEnd=GETUTCDATE() FROM ViewingSession s JOIN ContentRecipient r ON r.RecipientID=s.RecipientID WHERE s.SessionID=@session AND r.UserID=@user AND s.SessionStatus='Active'",db)) {Param(c,"@session",sessionId);Param(c,"@user",RequestUser.Get().Id);if(c.ExecuteNonQuery()==0)return NotFound();SessionBinding old;SessionBindings.TryRemove(sessionId,out old);return Ok(new {success=true});}}
+   using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var c=new MySqlCommand(@"UPDATE ViewingSession s JOIN ContentRecipient r ON r.RecipientID=s.RecipientID SET s.Session_Status='Ended',s.Session_End=UTC_TIMESTAMP() WHERE s.SessionID=@session AND r.UserID=@user AND s.Session_Status='Active'",db)) {Param(c,"@session",sessionId);Param(c,"@user",RequestUser.Get().Id);if(c.ExecuteNonQuery()==0)return NotFound();SessionBinding old;SessionBindings.TryRemove(sessionId,out old);return Ok(new {success=true});}}
   }
-  static void EndSession(MySqlConnection db,MySqlTransaction tx,int session,string status) {using(var c=Command(db,tx,"UPDATE ViewingSession SET SessionStatus=@status,SessionEnd=GETUTCDATE() WHERE SessionID=@session AND SessionStatus='Active'")) {Param(c,"@status",status);Param(c,"@session",session);c.ExecuteNonQuery();}}
-  static void RecordCheck(MySqlConnection db,MySqlTransaction tx,int session,bool allowed,bool ipVerified,bool deviceVerified,string reason) {using(var c=Command(db,tx,"INSERT INTO EnvironmentCheck(SessionID,ViewCount,LocationVerified,DeviceVerified,PolicySatisfied,ViolationType) SELECT @session,(SELECT COUNT(*) FROM ViewingSession WHERE RecipientID=s.RecipientID),@ip,@device,@ok,@reason FROM ViewingSession s WHERE s.SessionID=@session")) {Param(c,"@session",session);Param(c,"@ip",ipVerified);Param(c,"@device",deviceVerified);Param(c,"@ok",allowed);Param(c,"@reason",reason);c.ExecuteNonQuery();}}
+  static void EndSession(MySqlConnection db,MySqlTransaction tx,int session,string status) {using(var c=Command(db,tx,"UPDATE ViewingSession SET Session_Status=@status,Session_End=UTC_TIMESTAMP() WHERE SessionID=@session AND Session_Status='Active'")) {Param(c,"@status",status);Param(c,"@session",session);c.ExecuteNonQuery();}}
+  static void RecordCheck(MySqlConnection db,MySqlTransaction tx,int session,bool allowed,bool ipVerified,bool deviceVerified,string reason) {using(var c=Command(db,tx,"INSERT INTO EnvironmentCheck(Check_Timestamp,SessionID,ViewCount,LocationVerified,DeviceVerified,PolicySatisfied,ViolationType) SELECT UTC_TIMESTAMP(),@session,(SELECT COUNT(*) FROM ViewingSession WHERE RecipientID=s.RecipientID),@ip,@device,@ok,@reason FROM ViewingSession s WHERE s.SessionID=@session")) {Param(c,"@session",session);Param(c,"@ip",ipVerified);Param(c,"@device",deviceVerified);Param(c,"@ok",allowed);Param(c,"@reason",reason);c.ExecuteNonQuery();}}
   static string GetRemoteIp(HttpRequestMessage request) {
    string value=null;
    if(request!=null && request.Properties.ContainsKey("MS_HttpContext")) {
@@ -152,24 +152,24 @@ namespace Aperture_WebAPI.Controllers {
    return String.IsNullOrWhiteSpace(value)?null:value.Trim();
   }
   static SessionResult Evaluate(MySqlConnection db,MySqlTransaction tx,int id,int recipient,Guid device,string clientIp,bool existing,int cameraPolicyVersion) {
-   using(var c=Command(db,tx,@"SELECT c.FileName,c.FileType,r.AccessStatus,p.PolicyStatus,p.StartTime,p.ExpirationDate,p.MaximumViews,p.TrustedDevice,p.RequiredLocation,p.ScreenshotRestriction,CASE WHEN EXISTS(SELECT 1 FROM TrustedDevices d WHERE d.UserID=r.UserID AND d.DeviceIdentifier=@device AND d.IsTrusted=1) THEN 1 ELSE 0 END,(SELECT COUNT(*) FROM ViewingSession s WHERE s.RecipientID=r.RecipientID),p.CameraDetectionEnabled,p.BlockPhones,p.BlockMultiplePeople,p.RequireViewer FROM Content c JOIN ContentRecipient r ON r.ContentID=c.ContentID JOIN AccessPolicy p ON p.ContentID=c.ContentID WHERE c.ContentID=@id AND r.RecipientID=@recipient")) {Param(c,"@id",id);Param(c,"@recipient",recipient);Param(c,"@device",device.ToString("D"));using(var r=c.ExecuteReader()) {
+   using(var c=Command(db,tx,@"SELECT c.File_Name,c.File_Type,r.Access_Status,p.PolicyStatus,p.Requirements,CASE WHEN EXISTS(SELECT 1 FROM TrustedDevices d WHERE d.UserID=r.UserID AND d.DeviceType=@device AND d.IsTrusted=1) THEN 1 ELSE 0 END,(SELECT COUNT(*) FROM ViewingSession s WHERE s.RecipientID=r.RecipientID) FROM Content c JOIN ContentRecipient r ON r.ContentID=c.ContentID JOIN AccessPolicy p ON p.ContentID=c.ContentID WHERE c.ContentID=@id AND r.RecipientID=@recipient")) {Param(c,"@id",id);Param(c,"@recipient",recipient);Param(c,"@device","Desktop:"+device.ToString("D"));using(var r=c.ExecuteReader()) {
     if(!r.Read())return Deny("Content or policy not found.");string reason=null;bool locationVerified=true;var now=DateTime.UtcNow;
+    ViewingRequirements policy;
+    try {policy=ViewingRequirements.Parse(r.IsDBNull(4)?null:r.GetString(4));}
+    catch(JsonException) {return Deny("The viewing requirements are invalid.");}
     if(r.GetString(2)!="Active" || r.GetString(3)!="Active")reason="Access has been revoked.";
-    else if(!r.IsDBNull(4) && now<r.GetDateTime(4))reason="Access has not begun.";
-    else if(!r.IsDBNull(5) && now>=r.GetDateTime(5))reason="Access has expired.";
-    else if(!existing && r.GetBoolean(6) && r.GetInt32(11)>=1)reason="Maximum views reached.";
-    else if(r.GetBoolean(7) && r.GetInt32(10)==0)reason="Approved device required.";
-    else if(!r.IsDBNull(8)) {
-     LocationPolicy policy;
-     try {policy=JsonConvert.DeserializeObject<LocationPolicy>(r.GetString(8));}
-     catch(JsonException) {policy=null;reason="The geographic access policy is invalid.";}
-     if(reason==null) {var verification=IpGeolocationService.Verify(clientIp,policy);locationVerified=verification.Success&&verification.Matches;if(!locationVerified)reason=verification.Message;}
+    else if(policy.StartTime.HasValue && now<policy.StartTime.Value)reason="Access has not begun.";
+    else if(policy.ExpiresAt.HasValue && now>=policy.ExpiresAt.Value)reason="Access has expired.";
+    else if(!existing && policy.MaxViews.HasValue && r.GetInt64(6)>=policy.MaxViews.Value)reason="Maximum views reached.";
+    else if(policy.RequireTrustedDevice && r.GetInt32(5)==0)reason="Approved device required.";
+    else if(policy.Location!=null) {
+     var verification=IpGeolocationService.Verify(clientIp,policy.Location);locationVerified=verification.Success&&verification.Matches;if(!locationVerified)reason=verification.Message;
     }
-    var camera=new CameraRestrictions {Enabled=r.GetBoolean(12),BlockPhones=r.GetBoolean(13),BlockMultiplePeople=r.GetBoolean(14),RequireViewer=r.GetBoolean(15)};
+    var camera=policy.CameraRestrictions ?? new CameraRestrictions();
     if(reason==null && !camera.SupportsClient(cameraPolicyVersion))reason="This content requires camera protection. Use an updated Aperture desktop client.";
-    if(reason==null && r.GetBoolean(9))reason="Screenshot restriction cannot be enforced by this desktop client.";
-    if(reason!=null)return new SessionResult {AccessGranted=false,Message=reason,DeviceVerified=r.GetInt32(10)!=0,LocationVerified=locationVerified,CameraRestrictions=camera};
-    try{var result=ReadContent(id,r.GetString(0),r.GetString(1));result.DeviceVerified=r.GetInt32(10)!=0;result.LocationVerified=locationVerified;result.CameraRestrictions=camera;return result;}
+    if(reason==null && policy.ScreenshotRestriction)reason="Screenshot restriction cannot be enforced by this desktop client.";
+    if(reason!=null)return new SessionResult {AccessGranted=false,Message=reason,DeviceVerified=r.GetInt32(5)!=0,LocationVerified=locationVerified,CameraRestrictions=camera};
+    try{var result=ReadContent(id,r.GetString(0),r.GetString(1));result.DeviceVerified=r.GetInt32(5)!=0;result.LocationVerified=locationVerified;result.CameraRestrictions=camera;return result;}
     catch(IOException){return Deny("Content file is unavailable.");}
    }}
   }

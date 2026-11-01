@@ -40,8 +40,8 @@ namespace Aperture_WebAPI.Controllers
             {
                 connection.Open();
 
-                const string sql = @"INSERT INTO Users(FirstName, LastName, Username, PasswordHash)
-                    VALUES(@FirstName, @LastName, @Username, @PasswordHash)";
+                const string sql = @"INSERT INTO Users(First_Name, Last_Name, username, PasswordHash, Date_created)
+                    VALUES(@FirstName, @LastName, @Username, @PasswordHash, UTC_TIMESTAMP())";
 
                 using (MySqlCommand command =
                        new MySqlCommand(sql, connection))
@@ -63,8 +63,7 @@ namespace Aperture_WebAPI.Controllers
                     }
                     catch (MySqlException ex)
                     {
-                        if (ex.Number == 2601 ||
-                            ex.Number == 2627)
+                        if (ex.Number == 1062)
                         {
                             return Content(
                                 HttpStatusCode.Conflict,
