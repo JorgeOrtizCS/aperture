@@ -1,0 +1,31 @@
+opencollection: 1.0.0
+
+info:
+  name: Aperture WebAPI
+  version: "1"
+
+request:
+  variables:
+    - name: base
+      value: http://localhost:5080
+    - name: sender
+      value: alice
+    - name: recipient
+      value: bob
+    - name: password
+      value: password123
+    - name: deviceKey
+      value: 6f1c2b8e-3d4a-4f5b-9c6d-7e8f9a0b1c2d
+
+docs:
+  content: |-
+    Manual API requests, converted from Aperture WebAPI.http. Run them top to bottom (or with the Collection Runner): login, share and session requests save tokens and ids into runtime variables (bru.setVar) that later requests use. Runtime variables are not written to these files, so tokens never end up in git.
+
+    The plain-HTTP port avoids certificate prompts; set base to https://localhost:44353 once the dev certificate is trusted (dotnet dev-certs https --trust).
+  type: text/markdown
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

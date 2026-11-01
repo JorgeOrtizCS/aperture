@@ -1,0 +1,47 @@
+info:
+  name: Restrict to a precise point + radius
+  type: http
+  seq: 7
+
+http:
+  method: POST
+  url: "{{base}}/api/situational/content/{{contentId}}/location"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: '{ "latitude": 26.3683, "longitude": -80.1029, "radiusMeters": 500 }'
+  auth:
+    type: bearer
+    token: "{{senderToken}}"
+
+runtime:
+  variables:
+    - name: contentId
+      value: "18"
+  scripts:
+    - type: before-request
+      code: |-
+        // Log in first so this request works on its own: tokens live only in the
+        // API's memory and stop working when it restarts.
+        const login = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{sender}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("senderToken", login.data.Token);
+    - type: after-response
+      code: test("status is 200", () => expect(res.getStatus()).to.be.oneOf([200]));
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: "Situational Awareness: replaces the content's location rule with a GPS point and radius."

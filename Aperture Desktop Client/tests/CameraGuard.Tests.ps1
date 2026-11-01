@@ -95,6 +95,3 @@ try {
     $type.GetField('camera', $private).GetValue($guard).Dispose()
     $form.Dispose()
 }
-
-
-

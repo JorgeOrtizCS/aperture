@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -49,7 +49,7 @@ namespace Aperture_Desktop_Client.Services
 
         public async Task<TResponse> PostAsync<TRequest, TResponse>(
             string endpoint,
-            TRequest request)
+            TRequest request, Models.ClientLocation location = null)
         {
             string json =
                 JsonConvert.SerializeObject(request);
@@ -63,9 +63,7 @@ namespace Aperture_Desktop_Client.Services
                         "application/json"))
                 {
                     HttpResponseMessage response =
-                        await _httpClient.PostAsync(
-                            endpoint,
-                            content);
+                        await SendPostAsync(endpoint, content, location);
 
                     string responseJson =
                         await response.Content
@@ -79,7 +77,7 @@ namespace Aperture_Desktop_Client.Services
                         if (response.StatusCode == System.Net.HttpStatusCode.NotFound &&
                             typeof(TResponse) == typeof(Models.SessionResult))
                             return (TResponse)(object)new Models.SessionResult {
-                                AccessGranted = false, Message = "Content or viewing session is unavailable. Retrying authorization..."
+                                SessionEnded = true, AccessGranted = false, Message = "Content or viewing session is unavailable. Retrying authorization..."
                             };
                         // Viewing-policy denials are expected results, including HTTP 403.
                         // Other callers retain the normal HTTP error handling.
@@ -141,6 +139,18 @@ namespace Aperture_Desktop_Client.Services
                     "Error:\r\n" +
                     ex.Message,
                     ex);
+            }
+        }
+
+        private async Task<HttpResponseMessage> SendPostAsync(string endpoint, HttpContent content, Models.ClientLocation location)
+        {
+            using(var message=new HttpRequestMessage(HttpMethod.Post,endpoint)) {
+                message.Content=content;
+                if(location!=null) {
+                    message.Headers.Add("X-Client-Latitude",location.Latitude.ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+                    message.Headers.Add("X-Client-Longitude",location.Longitude.ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+                }
+                return await _httpClient.SendAsync(message);
             }
         }
 

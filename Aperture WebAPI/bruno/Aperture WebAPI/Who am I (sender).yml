@@ -1,0 +1,39 @@
+info:
+  name: Who am I (sender)
+  type: http
+  seq: 5
+
+http:
+  method: GET
+  url: "{{base}}/api/user/me"
+  auth:
+    type: bearer
+    token: "{{senderToken}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        // Log in first so this request works on its own: tokens live only in the
+        // API's memory and stop working when it restarts.
+        const login = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{sender}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("senderToken", login.data.Token);
+    - type: after-response
+      code: test("status is 200", () => expect(res.getStatus()).to.be.oneOf([200]));
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true
+
+docs: Returns the logged-in user.

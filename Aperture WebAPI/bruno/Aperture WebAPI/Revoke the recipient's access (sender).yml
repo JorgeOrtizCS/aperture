@@ -1,0 +1,45 @@
+info:
+  name: Revoke the recipient's access (sender)
+  type: http
+  seq: 19
+
+http:
+  method: POST
+  url: "{{base}}/api/content/{{contentId}}/revoke"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: "{}"
+  auth:
+    type: bearer
+    token: "{{senderToken}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        // Log in first so this request works on its own: tokens live only in the
+        // API's memory and stop working when it restarts.
+        const login = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{sender}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("senderToken", login.data.Token);
+    - type: after-response
+      code: test("status is 200", () => expect(res.getStatus()).to.be.oneOf([200]));
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true
+
+docs: Revokes access and ends sessions.

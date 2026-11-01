@@ -1,0 +1,43 @@
+info:
+  name: Check the time window (recipient)
+  type: http
+  seq: 9
+
+http:
+  method: GET
+  url: "{{base}}/api/situational/content/{{contentId}}/time"
+  auth:
+    type: bearer
+    token: "{{recipientToken}}"
+
+runtime:
+  variables:
+    - name: contentId
+      value: "18"
+  scripts:
+    - type: before-request
+      code: |-
+        // Log in first so this request works on its own: tokens live only in the
+        // API's memory and stop working when it restarts.
+        const login = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{recipient}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("recipientToken", login.data.Token);
+    - type: after-response
+      code: |-
+        test("status is 200", () => expect(res.getStatus()).to.be.oneOf([200]));
+        test("content is inside its time window", () => expect(res.getBody().passed).to.equal(true));
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: "Situational Awareness: runs the time-window check for the content right now. Returns passed, the reason when it fails, and the stored start time and expiration."

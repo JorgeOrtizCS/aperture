@@ -31,13 +31,36 @@ namespace Aperture_Desktop.Forms {
   static Guid DeviceKey() {var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Aperture");Directory.CreateDirectory(directory);var path=Path.Combine(directory,"device-id.txt");Guid key;if(File.Exists(path)&&Guid.TryParse(File.ReadAllText(path),out key)&&key!=Guid.Empty)return key;key=Guid.NewGuid();File.WriteAllText(path,key.ToString("D"));return key;}
   async Task RegisterDevice() {try{var result=await auth.ApiClient.PostAsync<DeviceRegistration,DeviceRegistrationResult>("api/devices",new DeviceRegistration {DeviceKey=DeviceKey(),DeviceName=Environment.MachineName});MessageBox.Show(result.Trusted?"This device is marked trusted.":"Device registered. An administrator must approve it before trusted-device policies allow access.","Device status");}catch(Exception ex){MessageBox.Show(ex.Message,"Device registration failed");}}
   async Task Manage(SharedContent item) {
-   using(var form=new Form {Text="Manage shared content",Size=new Size(420,255),StartPosition=FormStartPosition.CenterParent}) {
+   using(var form=new Form {Text="Manage shared content",Size=new Size(500,360),StartPosition=FormStartPosition.CenterParent}) {
     var description=Label(item.Title+" - shared with "+item.Recipient+"\nAccess: "+item.Status+" - Policy: "+item.PolicyStatus);description.Location=new Point(20,20);description.AutoSize=false;description.Size=new Size(370,65);form.Controls.Add(description);
     var toggle=Button(item.PolicyStatus=="Active"?"Pause access":"Resume access",165);toggle.Location=new Point(20,100);toggle.Enabled=item.Status=="Active";form.Controls.Add(toggle);
     var revoke=Button("Revoke",130);revoke.Location=new Point(200,100);revoke.Enabled=item.Status=="Active";form.Controls.Add(revoke);
     toggle.Click+=async (sender,args)=>{toggle.Enabled=false;try{await auth.ApiClient.PostAsync<PolicyUpdate,object>("api/content/"+item.Id+"/policy",new PolicyUpdate {Status=item.PolicyStatus=="Active"?"Paused":"Active"});form.DialogResult=DialogResult.OK;form.Close();}catch(Exception ex){MessageBox.Show(ex.Message,"Policy update failed");toggle.Enabled=true;}};
     revoke.Click+=async (sender,args)=>{if(MessageBox.Show("Revoke this recipient's access?","Confirm revocation",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;revoke.Enabled=false;try{await auth.ApiClient.PostAsync("api/content/"+item.Id+"/revoke");form.DialogResult=DialogResult.OK;form.Close();}catch(Exception ex){MessageBox.Show(ex.Message,"Revocation failed");revoke.Enabled=true;}};
+    var editTime=Button("Edit time window",195);editTime.Location=new Point(20,155);form.Controls.Add(editTime);
+    var editArea=Button("Set allowed area",195);editArea.Location=new Point(230,155);form.Controls.Add(editArea);
+    editTime.Click+=async (sender,args)=>{if(await EditConditions(item,false)){form.DialogResult=DialogResult.OK;form.Close();}};
+    editArea.Click+=async (sender,args)=>{if(await EditConditions(item,true)){form.DialogResult=DialogResult.OK;form.Close();}};
     if(form.ShowDialog(this)==DialogResult.OK)await LoadContent();
+   }
+  }
+  Task<bool> EditConditions(SharedContent item,bool location) {
+   using(var form=new Form {Text=location?"Allowed viewing area":"Viewing time window",Size=new Size(550,340),StartPosition=FormStartPosition.CenterParent}) {
+    var start=new DateTimePicker {Location=new Point(25,60),Width=230,Format=DateTimePickerFormat.Custom,CustomFormat="yyyy-MM-dd HH:mm",ShowCheckBox=true,Checked=item.StartTime.HasValue,Value=item.StartTime.HasValue?item.StartTime.Value.ToLocalTime():DateTime.Now};
+    var expiry=new DateTimePicker {Location=new Point(275,60),Width=230,Format=DateTimePickerFormat.Custom,CustomFormat="yyyy-MM-dd HH:mm",ShowCheckBox=true,Checked=item.ExpiresAt.HasValue,Value=item.ExpiresAt.HasValue?item.ExpiresAt.Value.ToLocalTime():DateTime.Now.AddHours(1)};
+    var lat=new NumericUpDown {Location=new Point(25,60),Width=145,Minimum=-90,Maximum=90,DecimalPlaces=6,Value=(decimal)(item.Latitude??0)};
+    var lon=new NumericUpDown {Location=new Point(185,60),Width=145,Minimum=-180,Maximum=180,DecimalPlaces=6,Value=(decimal)(item.Longitude??0)};
+    var radius=new NumericUpDown {Location=new Point(345,60),Width=145,Minimum=1,Maximum=20000000,Value=(decimal)Math.Min(20000000,item.RadiusMeters??500)};
+    if(location)form.Controls.AddRange(new Control[] {lat,lon,radius,new Label {Text="Latitude",Location=new Point(25,35)},new Label {Text="Longitude",Location=new Point(185,35)},new Label {Text="Radius (meters)",Location=new Point(345,35)}});
+    else form.Controls.AddRange(new Control[] {start,expiry,new Label {Text="Start (optional, local time)",Location=new Point(25,35),AutoSize=true},new Label {Text="Expiry (optional, local time)",Location=new Point(275,35),AutoSize=true}});
+    form.Controls.Add(new Label {Text=location?"Replaces the location rule. Recipients must share their device location.":"Changes apply on the next check. Extend expiry within five minutes to restore a suspended viewer.",Location=new Point(25,115),Size=new Size(475,55)});
+    var save=Button("Save conditions");save.Location=new Point(25,200);form.Controls.Add(save);
+    save.Click+=async (sender,args)=>{save.Enabled=false;try {
+     if(location)await auth.ApiClient.PostAsync<PreciseLocationRequest,object>("api/situational/content/"+item.Id+"/location",new PreciseLocationRequest {Latitude=(double)lat.Value,Longitude=(double)lon.Value,RadiusMeters=(double)radius.Value});
+     else await auth.ApiClient.PostAsync<TimeWindowRequest,object>("api/situational/content/"+item.Id+"/time",new TimeWindowRequest {StartTime=start.Checked?(DateTime?)start.Value.ToUniversalTime():null,ExpiresAt=expiry.Checked?(DateTime?)expiry.Value.ToUniversalTime():null});
+     form.DialogResult=DialogResult.OK;form.Close();
+    }catch(Exception ex){MessageBox.Show(ex.Message,"Could not save conditions");save.Enabled=true;}};
+    return Task.FromResult(form.ShowDialog(this)==DialogResult.OK);
    }
   }
   async Task Share() {using(var form=new Form {Text="Share New Content",Size=new Size(670,850),StartPosition=FormStartPosition.CenterParent,BackColor=Color.White,AutoScroll=true}) {
@@ -47,7 +70,7 @@ namespace Aperture_Desktop.Forms {
    var selection=new Label {Text="Text content selected",Location=new Point(200,428),Width=320};
    choose.Click+=(sender,args)=>{using(var dialog=new OpenFileDialog {Filter="Images|*.png;*.jpg;*.jpeg",Title="Choose an image"}){if(dialog.ShowDialog(form)==DialogResult.OK){var info=new FileInfo(dialog.FileName);if(info.Length>5*1024*1024){MessageBox.Show("Maximum image size is 5 MB.");return;}imageData=Convert.ToBase64String(File.ReadAllBytes(dialog.FileName));imageType=Path.GetExtension(dialog.FileName).Equals(".png",StringComparison.OrdinalIgnoreCase)?"image/png":"image/jpeg";selection.Text=info.Name;}}};
    var expiry=new DateTimePicker {Location=new Point(24,495),Width=240,Format=DateTimePickerFormat.Custom,CustomFormat="yyyy-MM-dd HH:mm",ShowCheckBox=true,Checked=false,Value=DateTime.Now.AddDays(7)};
-   var max=new NumericUpDown {Location=new Point(285,495),Width=90,Minimum=0,Maximum=1,Value=0};var trusted=new CheckBox {Text="Require approved device",Location=new Point(24,590),Width=250};var submit=Button("Share securely");submit.Location=new Point(24,930);
+   var max=new NumericUpDown {Location=new Point(285,495),Width=90,Minimum=0,Maximum=1000000,Value=0};var trusted=new CheckBox {Text="Require approved device",Location=new Point(24,590),Width=250};var submit=Button("Share securely");submit.Location=new Point(24,1075);
    var start=new DateTimePicker {Location=new Point(24,550),Width=240,Format=DateTimePickerFormat.Custom,CustomFormat="yyyy-MM-dd HH:mm",ShowCheckBox=true,Checked=false,Value=DateTime.Now.AddMinutes(5)};
    var country=new TextBox {Location=new Point(24,660),Width=180};var region=new TextBox {Location=new Point(220,660),Width=180};var city=new TextBox {Location=new Point(416,660),Width=180};
    var cameraEnabled=new CheckBox {Text="Require camera-based detection for all viewers",Location=new Point(24,710),AutoSize=true,Checked=false};
@@ -57,11 +80,18 @@ namespace Aperture_Desktop.Forms {
    Action updateCameraOptions=()=>{blockPhones.Enabled=blockPeople.Enabled=requireViewer.Enabled=cameraEnabled.Checked;};
    cameraEnabled.CheckedChanged+=(s,e)=>updateCameraOptions();updateCameraOptions();
    form.Controls.AddRange(new Control[] {cameraEnabled,blockPhones,blockPeople,requireViewer,new Label {Text="Viewers cannot turn off your camera rules. Camera failures hide content.\nExisting time, location, device and view-limit rules also apply.",Location=new Point(24,855),Size=new Size(570,48)}});
-   form.Controls.AddRange(new Control[] {new Label {Text="Title",Location=new Point(24,30),AutoSize=true},title,new Label {Text="Recipient username",Location=new Point(24,90),AutoSize=true},recipient,new Label {Text="Content text",Location=new Point(24,150),AutoSize=true},body,choose,selection,new Label {Text="Expiration (optional)",Location=new Point(24,473),AutoSize=true},expiry,new Label {Text="One view (1 = yes)",Location=new Point(285,473),AutoSize=true},max,new Label {Text="Start time (optional)",Location=new Point(24,527),AutoSize=true},start,trusted,
+   form.Controls.AddRange(new Control[] {new Label {Text="Title",Location=new Point(24,30),AutoSize=true},title,new Label {Text="Recipient username",Location=new Point(24,90),AutoSize=true},recipient,new Label {Text="Content text",Location=new Point(24,150),AutoSize=true},body,choose,selection,new Label {Text="Expiration (optional)",Location=new Point(24,473),AutoSize=true},expiry,new Label {Text="Max views (0 = unlimited)",Location=new Point(285,473),AutoSize=true},max,new Label {Text="Start time (optional)",Location=new Point(24,527),AutoSize=true},start,trusted,
     new Label {Text="Allowed country/code (optional)",Location=new Point(24,637),AutoSize=true},country,
     new Label {Text="Allowed state/region (optional)",Location=new Point(220,637),AutoSize=true},region,
     new Label {Text="Allowed city (optional)",Location=new Point(416,637),AutoSize=true},city,submit});
-   submit.Click+=async (s,e)=>{submit.Enabled=false;try{if(cameraEnabled.Checked){var capabilities=await auth.ApiClient.GetAsync<ContentCapabilities>("api/content/capabilities");if(capabilities==null||capabilities.CameraPolicyVersion<1)throw new InvalidOperationException("Update the API before sharing camera-restricted content.");}await auth.ApiClient.PostAsync<CreateContentRequest,SharedContent>("api/content",new CreateContentRequest {CameraRestrictions=new CameraRestrictions {Enabled=cameraEnabled.Checked,BlockPhones=cameraEnabled.Checked&&blockPhones.Checked,BlockMultiplePeople=cameraEnabled.Checked&&blockPeople.Checked,RequireViewer=cameraEnabled.Checked&&requireViewer.Checked},Title=title.Text,Recipient=recipient.Text,Body=body.Text,FileDataBase64=imageData,FileType=imageType,ExpiresAt=expiry.Checked?(DateTime?)expiry.Value.ToUniversalTime():null,StartTime=start.Checked?(DateTime?)start.Value.ToUniversalTime():null,MaxViews=max.Value==0?(int?)null:(int)max.Value,RequireTrustedDevice=trusted.Checked,AllowedCountry=country.Text,AllowedRegion=region.Text,AllowedCity=city.Text});form.DialogResult=DialogResult.OK;form.Close();}catch(Exception ex){MessageBox.Show(ex.Message,"Share failed");}finally{if(!submit.IsDisposed)submit.Enabled=true;}};
+   var precise=new CheckBox {Text="Require an exact viewing area",Location=new Point(24,925),AutoSize=true};
+   var latitude=new NumericUpDown {Location=new Point(24,990),Width=170,Minimum=-90,Maximum=90,DecimalPlaces=6};
+   var longitude=new NumericUpDown {Location=new Point(220,990),Width=170,Minimum=-180,Maximum=180,DecimalPlaces=6};
+   var radius=new NumericUpDown {Location=new Point(416,990),Width=170,Minimum=1,Maximum=20000000,Value=500};
+   precise.CheckedChanged+=(s,e)=>{latitude.Enabled=longitude.Enabled=radius.Enabled=precise.Checked;country.Enabled=region.Enabled=city.Enabled=!precise.Checked;};
+   latitude.Enabled=longitude.Enabled=radius.Enabled=false;
+   form.Controls.AddRange(new Control[] {precise,latitude,longitude,radius,new Label {Text="Latitude",Location=new Point(24,965)},new Label {Text="Longitude",Location=new Point(220,965)},new Label {Text="Radius (meters)",Location=new Point(416,965)},new Label {Text="Viewers must allow Windows/browser location sharing while viewing.",Location=new Point(24,1030),AutoSize=true}});
+   submit.Click+=async (s,e)=>{submit.Enabled=false;try{if(cameraEnabled.Checked){var capabilities=await auth.ApiClient.GetAsync<ContentCapabilities>("api/content/capabilities");if(capabilities==null||capabilities.CameraPolicyVersion<1)throw new InvalidOperationException("Update the API before sharing camera-restricted content.");}await auth.ApiClient.PostAsync<CreateContentRequest,SharedContent>("api/content",new CreateContentRequest {CameraRestrictions=new CameraRestrictions {Enabled=cameraEnabled.Checked,BlockPhones=cameraEnabled.Checked&&blockPhones.Checked,BlockMultiplePeople=cameraEnabled.Checked&&blockPeople.Checked,RequireViewer=cameraEnabled.Checked&&requireViewer.Checked},Title=title.Text,Recipient=recipient.Text,Body=body.Text,FileDataBase64=imageData,FileType=imageType,ExpiresAt=expiry.Checked?(DateTime?)expiry.Value.ToUniversalTime():null,StartTime=start.Checked?(DateTime?)start.Value.ToUniversalTime():null,MaxViews=max.Value==0?(int?)null:(int)max.Value,RequireTrustedDevice=trusted.Checked,AllowedCountry=precise.Checked?null:country.Text,AllowedRegion=precise.Checked?null:region.Text,AllowedCity=precise.Checked?null:city.Text,Latitude=precise.Checked?(double?)latitude.Value:null,Longitude=precise.Checked?(double?)longitude.Value:null,RadiusMeters=precise.Checked?(double?)radius.Value:null});form.DialogResult=DialogResult.OK;form.Close();}catch(Exception ex){MessageBox.Show(ex.Message,"Share failed");}finally{if(!submit.IsDisposed)submit.Enabled=true;}};
    if(form.ShowDialog(this)==DialogResult.OK)await LoadContent();
   }}
   async Task Open(SharedContent item) {
@@ -88,26 +118,35 @@ namespace Aperture_Desktop.Forms {
      }else{text.Visible=true;text.Text=result.Body;}
      guard.SetPolicyStatus(true,null);
     };
+    var location=new ClientLocationService();
+    var shareLocation=new CheckBox {Text="Share device location while viewing (Windows location permission required)",Dock=DockStyle.Bottom,Height=28,Checked=item.Latitude.HasValue};
+    shareLocation.CheckedChanged+=(s,e)=>{if(shareLocation.Checked)location.Start();else location.Stop();};
+    viewer.Controls.Add(shareLocation);if(shareLocation.Checked)location.Start();
+    var hide=Button("Hide for 30 seconds",180);hide.Dock=DockStyle.Bottom;viewer.Controls.Add(hide);
     var timer=new Timer {Interval=5000};bool checking=false;
     Func<Task> check=async ()=>{
      if(checking||viewer.IsDisposed)return;
      checking=true;timer.Stop();
      try {
       var result=sessionId==0
-       ? await auth.ApiClient.PostAsync<SessionRequest,SessionResult>("api/content/"+item.Id+"/sessions",new SessionRequest {DeviceKey=DeviceKey(),CameraPolicyVersion=1})
-       : await auth.ApiClient.PostAsync<object,SessionResult>("api/content/sessions/"+sessionId+"/check",new object());
+       ? await auth.ApiClient.PostAsync<SessionRequest,SessionResult>("api/content/"+item.Id+"/sessions",new SessionRequest {DeviceKey=DeviceKey(),CameraPolicyVersion=1},location.Current)
+       : await auth.ApiClient.PostAsync<object,SessionResult>("api/content/sessions/"+sessionId+"/check",new object(),location.Current);
       if(result==null)throw new InvalidDataException("Empty verification response.");
       if(result.AccessGranted)sessionId=result.SessionId;
-      else sessionId=0; // The API ends a session when a policy check fails.
+      else if(result.SessionEnded || !result.Suspended)sessionId=0; // Suspended sessions keep their view count and can recover.
       if(viewer.IsDisposed)return;
       if(!result.AccessGranted){guard.SetPolicyStatus(false,result.Message);clear();return;}
       display(result);
      }catch(Exception){if(!viewer.IsDisposed){guard.SetPolicyStatus(false,"Unable to verify with server. Retrying automatically...");clear();}}
      finally{checking=false;if(!viewer.IsDisposed)timer.Start();}
     };
+    hide.Click+=async (s,e)=>{if(sessionId==0||checking)return;hide.Enabled=false;checking=true;timer.Stop();try {
+     guard.SetPolicyStatus(false,"Session suspended for 30 seconds.");clear();
+     await auth.ApiClient.PostAsync<SuspendSessionRequest,object>("api/situational/sessions/"+sessionId+"/suspend",new SuspendSessionRequest {Reason="Viewer requested a pause",DurationSeconds=30});
+    }catch(Exception ex){MessageBox.Show(ex.Message,"Could not suspend session");}finally{checking=false;if(!hide.IsDisposed){hide.Enabled=true;timer.Start();}}};
     timer.Tick+=async (s,e)=>await check();
     viewer.Shown+=async (s,e)=>await check();
-    viewer.FormClosed+=(s,e)=>{timer.Dispose();clear();};
+    viewer.FormClosed+=(s,e)=>{timer.Dispose();location.Dispose();clear();};
     viewer.ShowDialog(this);
     // A pending open request can finish after the viewer closes. Wait for its
     // session ID so that it is ended too, without touching disposed controls.

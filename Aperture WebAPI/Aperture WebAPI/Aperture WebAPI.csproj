@@ -14,6 +14,9 @@
     <RootNamespace>Aperture_WebAPI</RootNamespace>
     <AssemblyName>Aperture WebAPI</AssemblyName>
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <!-- This project uses packages.config, not the SDK assets left by the Core branch. -->
+    <RestoreProjectStyle>PackagesConfig</RestoreProjectStyle>
+    <ResolveNuGetPackages>false</ResolveNuGetPackages>
     <UseIISExpress>true</UseIISExpress>
     <Use64BitIISExpress />
     <IISExpressSSLPort>44353</IISExpressSSLPort>
@@ -133,6 +136,13 @@
     <Content Include="Web.config" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="SituationalAwareness\LocationCheck.cs" />
+    <Compile Include="SituationalAwareness\LocationPolicyController.cs" />
+    <Compile Include="SituationalAwareness\SessionSuspension.cs" />
+    <Compile Include="SituationalAwareness\SessionSuspensionController.cs" />
+    <Compile Include="SituationalAwareness\SituationalAwarenessModels.cs" />
+    <Compile Include="SituationalAwareness\TimePolicyController.cs" />
+    <Compile Include="SituationalAwareness\TimeWindowCheck.cs" />
     <Compile Include="App_Start\WebApiConfig.cs" />
     <Compile Include="Config\ConnectionStrings.cs" />
     <Compile Include="Controllers\AuthenticationController.cs" />
@@ -202,7 +212,7 @@
     </PropertyGroup>
     <Error Condition="!Exists('..\packages\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.2.0.1\build\net46\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.2.0.1\build\net46\Microsoft.CodeDom.Providers.DotNetCompilerPlatform.props'))" />
   </Target>
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it.
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
   </Target>

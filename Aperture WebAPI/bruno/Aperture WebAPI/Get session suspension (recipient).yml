@@ -1,0 +1,41 @@
+info:
+  name: Get session suspension (recipient)
+  type: http
+  seq: 13
+
+http:
+  method: GET
+  url: "{{base}}/api/situational/sessions/{{suspendSessionId}}/suspension"
+  auth:
+    type: bearer
+    token: "{{recipientToken}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        // Log in first so this request works on its own: tokens live only in the
+        // API's memory and stop working when it restarts.
+        const login = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{recipient}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("recipientToken", login.data.Token);
+    - type: after-response
+      code: |-
+        test("status is 200", () => expect(res.getStatus()).to.be.oneOf([200]));
+        test("session is still suspended", () => expect(res.getBody().Suspended).to.equal(true));
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true
+
+docs: "Situational Awareness: shows whether the session from \"Suspend a viewing session\" is suspended, why, and until when checks are denied. Run it after that request (it uses {{suspendSessionId}})."

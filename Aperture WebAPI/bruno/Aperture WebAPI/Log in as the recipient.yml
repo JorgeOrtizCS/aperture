@@ -1,0 +1,30 @@
+info:
+  name: Log in as the recipient
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{base}}/api/auth/login"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: '{ "username": "{{recipient}}", "password": "{{password}}" }'
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        test("status is 200", () => expect(res.getStatus()).to.be.oneOf([200]));
+        if (res.getStatus() === 200) bru.setVar("recipientToken", res.getBody().Token);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true
+
+docs: Saves the bearer token to {{recipientToken}}.

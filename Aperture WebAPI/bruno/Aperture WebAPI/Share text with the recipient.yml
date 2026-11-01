@@ -1,0 +1,48 @@
+info:
+  name: Share text with the recipient
+  type: http
+  seq: 6
+
+http:
+  method: POST
+  url: "{{base}}/api/content"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: '{ "title": "Hello", "body": "Secret text", "recipient": "{{recipient}}" }'
+  auth:
+    type: bearer
+    token: "{{senderToken}}"
+
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        // Log in first so this request works on its own: tokens live only in the
+        // API's memory and stop working when it restarts.
+        const login = await bru.sendRequest({
+          method: "POST",
+          url: bru.interpolate("{{base}}/api/auth/login"),
+          headers: { "Content-Type": "application/json" },
+          data: {
+            username: bru.interpolate("{{sender}}"),
+            password: bru.interpolate("{{password}}")
+          }
+        });
+        bru.setVar("senderToken", login.data.Token);
+    - type: after-response
+      code: |-
+        test("status is 200", () => expect(res.getStatus()).to.be.oneOf([200]));
+        // Saved to the selected environment (environments/Local.yml) so later requests use it as {{contentId}}.
+        if (res.getStatus() === 200) bru.setEnvVar("contentId", res.getBody().id);
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true
+
+docs: Saves the new content id to the environment variable {{contentId}}.

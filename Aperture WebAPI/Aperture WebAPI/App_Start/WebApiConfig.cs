@@ -9,6 +9,7 @@ namespace Aperture_WebAPI.App_Start
             HttpConfiguration config)
         {
             config.MapHttpAttributeRoutes();
+            config.Formatters.JsonFormatter.SerializerSettings.DateTimeZoneHandling = Newtonsoft.Json.DateTimeZoneHandling.Utc;
 
             config.MessageHandlers.Add(new AuditLoggingHandler());
 
