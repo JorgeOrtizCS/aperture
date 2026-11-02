@@ -29,6 +29,9 @@ namespace Aperture_Desktop_Client.Services
     ///   APERTURE_PYTHON   python executable (overrides camera/venv, then PATH)
     ///   APERTURE_DETECTOR full path to detector_service.py (default: searches up from the exe
     ///                     for camera\src\detector_service.py, which finds it inside the repo)
+    ///   APERTURE_CAMERA_PREVIEW  set to 1 to also open the detector's camera window (boxes,
+    ///                     phone/person status, latency) while content is open. Debugging only:
+    ///                     pressing q in that window stops the detector, and the viewer fails closed.
     /// </summary>
     public sealed class CameraDetectionService : IDisposable
     {
@@ -55,12 +58,15 @@ namespace Aperture_Desktop_Client.Services
             }
 
             var python = FindPythonExecutable(script);
+            var preview = Environment.GetEnvironmentVariable("APERTURE_CAMERA_PREVIEW");
+            var previewArg = preview == "1" || string.Equals(preview, "true", StringComparison.OrdinalIgnoreCase)
+                ? " --preview" : "";
 
             var info = new ProcessStartInfo
             {
                 FileName = python,
                 // -u = unbuffered, so results arrive every frame instead of in chunks
-                Arguments = "-u \"" + script + "\"",
+                Arguments = "-u \"" + script + "\"" + previewArg,
                 WorkingDirectory = Path.GetDirectoryName(script),
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
