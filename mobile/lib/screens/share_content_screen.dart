@@ -4,8 +4,10 @@ import '../theme/app_theme.dart';
 import '../widgets/aperture_button.dart';
 import '../widgets/aperture_text_field.dart';
 import '../widgets/content_restrictions_section.dart';
+import '../widgets/content_restrictions_summary.dart';
 import '../widgets/section_header.dart';
 import 'content_status_screen.dart';
+import 'viewing_requirements_screen.dart';
 
 class ShareContentScreen extends StatefulWidget {
   const ShareContentScreen({super.key});
@@ -20,13 +22,19 @@ class _ShareContentScreenState extends State<ShareContentScreen> {
   final TextEditingController _recipientController = TextEditingController();
 
   bool _contentSelected = false;
-  ContentRestrictions _restrictions = const ContentRestrictions(
-    allowDownload: false,
-    allowResharing: false,
-    restrictScreenshots: true,
-    accessDuration: AccessDuration.twoDays,
-    viewLimit: 3,
-  );
+  ContentRestrictions _restrictions = ContentRestrictions.demoDefaults;
+
+  Future<void> _configureRequirements() async {
+    final selected = await Navigator.push<ContentRestrictions>(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            ViewingRequirementsScreen(initialRestrictions: _restrictions),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    setState(() => _restrictions = selected);
+  }
 
   void _shareContent() {
     final title = _titleController.text.trim();
@@ -47,6 +55,7 @@ class _ShareContentScreenState extends State<ShareContentScreen> {
         builder: (context) => ContentStatusScreen(
           contentTitle: title,
           recipientSummary: recipient,
+          restrictions: _restrictions,
         ),
       ),
     );
@@ -152,11 +161,13 @@ class _ShareContentScreenState extends State<ShareContentScreen> {
               icon: Icons.verified_user_outlined,
             ),
             const SizedBox(height: 14),
-            ContentRestrictionsSection(
-              restrictions: _restrictions,
-              onChanged: (restrictions) {
-                setState(() => _restrictions = restrictions);
-              },
+            ContentRestrictionsSummary(restrictions: _restrictions),
+            const SizedBox(height: 14),
+            ApertureButton(
+              label: 'Edit Policy',
+              icon: Icons.tune_outlined,
+              isSecondary: true,
+              onPressed: _configureRequirements,
             ),
             const SizedBox(height: 28),
             ApertureButton(

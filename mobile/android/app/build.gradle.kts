@@ -27,7 +27,12 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
+
+    sourceSets["main"].assets.srcDir("../../assets/models")
+    androidResources { noCompress += "tflite" }
 
     buildTypes {
         release {
@@ -36,6 +41,17 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+dependencies {
+    implementation("com.google.mediapipe:tasks-vision:1.1.1")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    // Keep the integration_test plugin and instrumented tests on the same
+    // AndroidX runner version under AGP's consistent dependency resolution.
+    debugImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }
 
 kotlin {

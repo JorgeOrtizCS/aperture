@@ -7,11 +7,13 @@ import io.flutter.plugin.common.MethodChannel
 import android.view.WindowManager
 
 class MainActivity : FlutterActivity() {
+    private var cameraDetection: CameraDetectionBridge? = null
     private val methodChannelName = "aperture/screen_capture_protection"
     private val eventChannelName = "aperture/screen_capture_protection/events"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        cameraDetection = CameraDetectionBridge(this, flutterEngine.dartExecutor.binaryMessenger)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, methodChannelName)
             .setMethodCallHandler { call, result ->
@@ -38,5 +40,21 @@ class MainActivity : FlutterActivity() {
                     override fun onCancel(arguments: Any?) = Unit
                 },
             )
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CameraDetectionBridge.PERMISSION_REQUEST) cameraDetection?.permissionResult()
+    }
+
+    override fun onPause() {
+        cameraDetection?.inactive()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        cameraDetection?.destroy()
+        cameraDetection = null
+        super.onDestroy()
     }
 }

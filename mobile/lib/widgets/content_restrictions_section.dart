@@ -15,6 +15,15 @@ enum AccessDuration {
 }
 
 class ContentRestrictions {
+  /// Initial policy for local demo content; this does not enable enforcement.
+  static const demoDefaults = ContentRestrictions(
+    allowDownload: false,
+    allowResharing: false,
+    restrictScreenshots: true,
+    accessDuration: AccessDuration.twoDays,
+    viewLimit: 3,
+  );
+
   final bool allowDownload;
   final bool allowResharing;
   final bool restrictScreenshots;
@@ -64,8 +73,8 @@ class ContentRestrictionsSection extends StatelessWidget {
         RestrictionTile(
           title: 'Allow Download',
           subtitle: restrictions.allowDownload
-              ? 'Recipient may save a local copy.'
-              : 'Download is disabled for the recipient.',
+              ? 'Policy permits saving a local copy.'
+              : 'Policy does not permit downloading.',
           icon: Icons.file_download_outlined,
           enabled: restrictions.allowDownload,
           onChanged: (value) {
@@ -76,8 +85,8 @@ class ContentRestrictionsSection extends StatelessWidget {
         RestrictionTile(
           title: 'Allow Resharing',
           subtitle: restrictions.allowResharing
-              ? 'Recipient may share access with others.'
-              : 'Recipient cannot reshare this content.',
+              ? 'Policy permits sharing access with others.'
+              : 'Policy does not permit resharing.',
           icon: Icons.ios_share_outlined,
           enabled: restrictions.allowResharing,
           onChanged: (value) {
@@ -101,6 +110,9 @@ class ContentRestrictionsSection extends StatelessWidget {
           icon: Icons.schedule_outlined,
           label: 'Expiration',
           child: DropdownButtonFormField<AccessDuration>(
+            isExpanded: true,
+            isDense: false,
+            itemHeight: null,
             initialValue: restrictions.accessDuration,
             decoration: const InputDecoration(
               border: InputBorder.none,
@@ -125,6 +137,9 @@ class ContentRestrictionsSection extends StatelessWidget {
           icon: Icons.visibility_outlined,
           label: 'View Limit',
           child: DropdownButtonFormField<String>(
+            isExpanded: true,
+            isDense: false,
+            itemHeight: null,
             initialValue: restrictions.viewLimit?.toString() ?? 'unlimited',
             decoration: const InputDecoration(
               border: InputBorder.none,
