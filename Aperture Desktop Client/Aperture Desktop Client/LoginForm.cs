@@ -44,42 +44,73 @@ namespace Aperture_Desktop_Client
 
             lblStatus.Text = string.Empty;
 
-            BackColor = Color.FromArgb(248, 250, 253);
-            ClientSize = new Size(420, 465);
-            lblTitle.Text = "Aperture";
-            lblTitle.ForeColor = Color.FromArgb(42, 53, 69);
-            lblTitle.Location = new Point(40, 60);
-            lblUsername.Location = new Point(40, 155);
-            txtUsername.Location = new Point(40, 180);
-            txtUsername.Width = 340;
-            lblPassword.Location = new Point(40, 225);
-            txtPassword.Location = new Point(40, 250);
-            txtPassword.Width = 340;
-            btnLogin.Text = "Sign In";
-            btnLogin.Location = new Point(40, 310);
-            btnLogin.Width = 340;
-            btnLogin.BackColor = Color.FromArgb(34, 75, 113);
-            btnLogin.ForeColor = Color.White;
-            btnLogin.FlatStyle = FlatStyle.Flat;
-            btnCancel.Location = new Point(40, 365);
-            btnCancel.Width = 340;
-            lblStatus.Location = new Point(40, 405);
-            lblStatus.Width = 340;
-            var register = new Button {
-                Text = "Create account", Location = new Point(40, 392), Width = 340,
-                Height = 32, FlatStyle = FlatStyle.Flat, BackColor = Color.White
+            DesktopTheme.Apply(this);
+            ClientSize = new Size(752, 430);
+            Padding = new Padding(12);
+            var brand = new Panel
+            {
+                Dock = DockStyle.Left,
+                Width = 300,
+                BackColor = DesktopTheme.PrimarySoft
             };
+            var intro = new Label
+            {
+                Text = "Share sensitive content securely.",
+                Location = new Point(32, 184),
+                Size = new Size(234, 64),
+                Font = new Font("Segoe UI", 13),
+                ForeColor = DesktopTheme.Secondary
+            };
+            lblTitle.Text = "Aperture";
+            lblTitle.Font = new Font("Segoe UI", 30, FontStyle.Bold);
+            lblTitle.ForeColor = DesktopTheme.Primary;
+            lblTitle.Location = new Point(27, 125);
+            brand.Controls.AddRange(new Control[] { lblTitle, intro });
+
+            var card = new Panel { Dock = DockStyle.Fill, BackColor = DesktopTheme.Surface };
+            DesktopTheme.RoundCorners(brand);
+            DesktopTheme.RoundCorners(card);
+            var heading = new Label
+            {
+                Text = "Sign in",
+                Font = new Font("Segoe UI", 20, FontStyle.Bold),
+                Location = new Point(32, 27),
+                AutoSize = true
+            };
+            lblUsername.Location = new Point(34, 90);
+            txtUsername.Location = new Point(34, 116);
+            txtUsername.Width = 382;
+            lblPassword.Location = new Point(34, 160);
+            txtPassword.Location = new Point(34, 186);
+            txtPassword.Width = 382;
+            DesktopTheme.StyleInput(txtUsername);
+            DesktopTheme.StyleInput(txtPassword);
+
+            btnLogin.Text = "Sign in";
+            btnLogin.SetBounds(34, 237, 382, 42);
+            DesktopTheme.StyleButton(btnLogin);
+            btnCancel.SetBounds(282, 294, 134, 38);
+            DesktopTheme.StyleButton(btnCancel, false);
+            var register = new Button { Text = "Create account", TabIndex = btnLogin.TabIndex + 1 };
+            register.SetBounds(34, 294, 234, 38);
+            DesktopTheme.StyleButton(register, false);
             register.Click += async (sender, args) => await Register();
-            Controls.Add(register);
-            lblStatus.Location = new Point(40, 430);
-            ClientSize = new Size(420, 500);
-            txtUsername.Focus();
+            btnCancel.TabIndex = register.TabIndex + 1;
+            lblStatus.SetBounds(34, 348, 382, 58);
+            card.Controls.AddRange(new Control[]
+            {
+                heading, lblUsername, txtUsername, lblPassword, txtPassword, btnLogin, register, btnCancel, lblStatus
+            });
+            Controls.Add(card);
+            Controls.Add(brand);
+            ActiveControl = txtUsername;
         }
 
         private async System.Threading.Tasks.Task Register()
         {
             using (var form = new Form { Text = "Create Aperture account", Size = new Size(430, 440), StartPosition = FormStartPosition.CenterParent })
             {
+                DesktopTheme.Apply(form);
                 var first = new TextBox { Location = new Point(30, 55), Width = 350 };
                 var last = new TextBox { Location = new Point(30, 115), Width = 350 };
                 var username = new TextBox { Location = new Point(30, 175), Width = 350 };
@@ -91,6 +122,9 @@ namespace Aperture_Desktop_Client
                     new Label { Text = "Username", Location = new Point(30, 152), AutoSize = true }, username,
                     new Label { Text = "Password (at least 8 characters)", Location = new Point(30, 212), AutoSize = true }, password, submit
                 });
+                foreach (var field in new[] { first, last, username, password }) DesktopTheme.StyleInput(field);
+                DesktopTheme.StyleButton(submit);
+                form.AcceptButton = submit;
                 submit.Click += async (sender, args) => {
                     submit.Enabled = false;
                     try {
@@ -178,7 +212,7 @@ namespace Aperture_Desktop_Client
 
                 ShowStatus(
                     "Login successful.",
-                    Color.Green);
+                    DesktopTheme.Success);
 
                 OpenMainForm();
             }
@@ -241,7 +275,7 @@ namespace Aperture_Desktop_Client
             {
                 ShowStatus(
                     "Logging in...",
-                    Color.DarkBlue);
+                    DesktopTheme.Primary);
             }
         }
 
@@ -261,7 +295,7 @@ namespace Aperture_Desktop_Client
         {
             ShowStatus(
                 message,
-                Color.Firebrick);
+                DesktopTheme.Danger);
         }
 
         private void btnCancel_Click(
