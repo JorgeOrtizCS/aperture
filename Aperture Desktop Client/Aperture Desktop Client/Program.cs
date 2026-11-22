@@ -24,7 +24,7 @@ namespace Aperture_Desktop_Client
 
             var apiClient =
                 new ApiClient(
-                    "http://aperture.runasp.net/");
+                    "https://aperture.runasp.net/");
 
             var authenticationService =
                 new AuthenticationService(
