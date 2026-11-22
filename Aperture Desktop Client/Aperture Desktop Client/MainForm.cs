@@ -10,31 +10,188 @@ using Aperture_Desktop_Client.Services;
 namespace Aperture_Desktop.Forms {
  public partial class MainForm : Form {
   readonly AuthenticationService auth;
-  readonly Color navy=Color.FromArgb(34,75,113), ink=Color.FromArgb(42,53,69);
-  FlowLayoutPanel received,sent;Label status;Button refresh;bool loading;
-  public MainForm(AuthenticationService service) {InitializeComponent();auth=service;BuildDashboard();Shown+=async (s,e)=>await LoadContent();}
-  Label Label(string value,int size=10,bool bold=false) {return new Label {Text=value,AutoSize=true,Font=new Font("Segoe UI",size,bold?FontStyle.Bold:FontStyle.Regular),ForeColor=ink,Margin=new Padding(3,8,3,8)};}
-  Button Button(string value,int width=180) {return new Button {Text=value,BackColor=navy,ForeColor=Color.White,FlatStyle=FlatStyle.Flat,Height=38,Width=width,Margin=new Padding(4,6,4,6)};}
-  void BuildDashboard() {
-   Controls.Clear();BackColor=Color.FromArgb(248,250,253);Text="Aperture - Secure Content";Size=new Size(920,710);MinimumSize=new Size(740,560);FormBorderStyle=FormBorderStyle.Sizable;MaximizeBox=true;
-   var layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Padding=new Padding(26)};layout.RowStyles.Add(new RowStyle(SizeType.Absolute,135));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,38));Controls.Add(layout);
-   var top=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false};layout.Controls.Add(top,0,0);top.Controls.Add(Label("Aperture",22,true));top.Controls.Add(Label("Welcome back, "+auth.CurrentUser.Username+". Manage your secure content."));
-   var actions=new FlowLayoutPanel {Width=820,Height=50};top.Controls.Add(actions);var share=Button("+  Share New Content");share.Click+=async (s,e)=>await Share();actions.Controls.Add(share);
-   refresh=Button("Refresh",100);refresh.Click+=async (s,e)=>await LoadContent();actions.Controls.Add(refresh);
-   var device=Button("Register device",140);device.Click+=async (s,e)=>await RegisterDevice();actions.Controls.Add(device);
-   var logout=Button("Sign out",100);logout.Click+=async (s,e)=>{logout.Enabled=false;try{await auth.Logout();}catch(Exception ex){MessageBox.Show(ex.Message,"Server sign-out unavailable");}finally{if(!IsDisposed){DialogResult=DialogResult.OK;Close();}}};actions.Controls.Add(logout);
-   var columns=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2};columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));layout.Controls.Add(columns,0,1);received=Column(columns,"Shared With Me",0);sent=Column(columns,"My Shared Content",1);
-   status=Label("Loading content...");layout.Controls.Add(status,0,2);
+  readonly Color ink=DesktopTheme.Text;
+  FlowLayoutPanel received,sent;
+  Label status;
+  Button refresh;
+  bool loading;
+
+  public MainForm(AuthenticationService service)
+  {
+   InitializeComponent();
+   auth=service;
+   BuildDashboard();
+   Shown+=async (s,e)=>await LoadContent();
   }
-  FlowLayoutPanel Column(TableLayoutPanel parent,string title,int index) {var panel=new TableLayoutPanel {Dock=DockStyle.Fill,RowCount=2,Padding=new Padding(5)};panel.RowStyles.Add(new RowStyle(SizeType.Absolute,42));panel.RowStyles.Add(new RowStyle(SizeType.Percent,100));parent.Controls.Add(panel,index,0);panel.Controls.Add(Label(title,14,true),0,0);var list=new FlowLayoutPanel {Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.TopDown,WrapContents=false};panel.Controls.Add(list,0,1);return list;}
-  async Task LoadContent() {if(loading)return;loading=true;refresh.Enabled=false;status.Text="Loading content...";try {var items=await auth.ApiClient.GetAsync<List<SharedContent>>("api/content");received.Controls.Clear();sent.Controls.Clear();foreach(var item in items) {var card=new Button {Text=item.Title+Environment.NewLine+(item.Mine?"To "+item.Recipient:"From "+item.Owner)+"  -  "+item.Status+" / "+item.PolicyStatus,Width=355,Height=74,TextAlign=ContentAlignment.MiddleLeft,BackColor=Color.White,ForeColor=ink,FlatStyle=FlatStyle.Flat,Margin=new Padding(3,5,3,5)};card.Click+=async (s,e)=>{if(item.Mine)await Manage(item);else await Open(item);};(item.Mine?sent:received).Controls.Add(card);}if(received.Controls.Count==0)received.Controls.Add(Label("Nothing shared with you yet."));if(sent.Controls.Count==0)sent.Controls.Add(Label("Share your first item."));status.Text=items.Count+" item(s) - Updated "+DateTime.Now.ToShortTimeString();}catch(Exception ex){status.Text="Could not load content: "+ex.Message;}finally{loading=false;refresh.Enabled=true;}}
+
+  Label Label(string value,int size=10,bool bold=false)
+  {
+   return new Label {Text=value,AutoSize=true,Font=new Font("Segoe UI",size,bold?FontStyle.Bold:FontStyle.Regular),
+    ForeColor=ink,Margin=new Padding(3,8,3,8)};
+  }
+
+  Button Button(string value,int width=180,bool primary=true,bool danger=false)
+  {
+   var button=new Button {Text=value,Height=38,Width=width,Margin=new Padding(4,6,4,6)};
+   DesktopTheme.StyleButton(button,primary,danger);
+   return button;
+  }
+
+  void BuildDashboard()
+  {
+   DesktopTheme.Apply(this);
+   Text="Aperture - Secure Content";
+   var workingArea=Screen.FromPoint(Cursor.Position).WorkingArea;
+   Size=new Size(Math.Min(1200,workingArea.Width),Math.Min(780,workingArea.Height));
+   MinimumSize=new Size(740,510);
+   StartPosition=FormStartPosition.CenterScreen;
+   var layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,Padding=new Padding(24,16,24,8)};
+   layout.RowStyles.Add(new RowStyle(SizeType.Absolute,84));
+   layout.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
+   layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+   layout.RowStyles.Add(new RowStyle(SizeType.Absolute,36));
+   Controls.Add(layout);
+
+   var header=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,BackColor=DesktopTheme.Surface,Padding=new Padding(14,0,12,0)};
+   header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+   header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+   var brand=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false};
+   var name=Label("Aperture",23,true);
+   name.ForeColor=DesktopTheme.Primary;
+   name.Margin=new Padding(3,5,3,0);
+   var subtitle=Label("Secure Content Dashboard");
+   subtitle.ForeColor=DesktopTheme.Secondary;
+   subtitle.Margin=new Padding(3,0,3,5);
+   brand.Controls.AddRange(new Control[] {name,subtitle});
+   DesktopTheme.RoundCorners(header);
+   header.Controls.Add(brand,0,0);
+   var account=Label(auth.CurrentUser.Username,10,true);
+   account.Anchor=AnchorStyles.Right;
+   account.AutoEllipsis=true;
+   account.MaximumSize=new Size(220,0);
+   header.Controls.Add(account,1,0);
+   layout.Controls.Add(header,0,0);
+
+   var actions=new FlowLayoutPanel {Dock=DockStyle.Fill,WrapContents=false,Padding=new Padding(0,3,0,0)};
+   var share=Button("+  Share New Content");
+   share.Click+=async (s,e)=>await Share();
+   refresh=Button("Refresh",100,false);
+   refresh.Click+=async (s,e)=>await LoadContent();
+   var device=Button("Register device",140,false);
+   device.Click+=async (s,e)=>await RegisterDevice();
+   var logout=Button("Sign out",100,false);
+   logout.Click+=async (s,e)=>
+   {
+    logout.Enabled=false;
+    try{await auth.Logout();}
+    catch(Exception ex){MessageBox.Show(ex.Message,"Server sign-out unavailable");}
+    finally{if(!IsDisposed){DialogResult=DialogResult.OK;Close();}}
+   };
+   actions.Controls.AddRange(new Control[] {share,refresh,device,logout});
+   layout.Controls.Add(actions,0,1);
+
+   var columns=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,Margin=new Padding(0)};
+   columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+   columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+   layout.Controls.Add(columns,0,2);
+   received=Column(columns,"Shared With Me",0);
+   sent=Column(columns,"My Shared Content",1);
+   status=Label("Loading content...");
+   status.ForeColor=DesktopTheme.Secondary;
+   layout.Controls.Add(status,0,3);
+  }
+
+  FlowLayoutPanel Column(TableLayoutPanel parent,string title,int index)
+  {
+   var panel=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,BackColor=DesktopTheme.Surface,
+    Padding=new Padding(12,4,12,8),Margin=index==0?new Padding(3,0,8,0):new Padding(8,0,3,0)};
+   panel.RowStyles.Add(new RowStyle(SizeType.Absolute,46));
+   panel.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+   DesktopTheme.RoundCorners(panel);
+   parent.Controls.Add(panel,index,0);
+   var heading=Label(title,14,true);
+   heading.ForeColor=DesktopTheme.Primary;
+   panel.Controls.Add(heading,0,0);
+   var list=new FlowLayoutPanel {Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.TopDown,WrapContents=false,
+    BackColor=DesktopTheme.Background,Padding=new Padding(6)};
+   list.SizeChanged+=(s,e)=>ResizeCards(list);
+   panel.Controls.Add(list,0,1);
+   return list;
+  }
+
+  static void ResizeCards(FlowLayoutPanel list)
+  {
+   foreach(Control card in list.Controls)
+    card.Width=Math.Max(1,list.Width-list.Padding.Horizontal-card.Margin.Horizontal-SystemInformation.VerticalScrollBarWidth);
+  }
+
+  async Task LoadContent()
+  {
+   if(loading)return;
+   loading=true;
+   refresh.Enabled=false;
+   status.ForeColor=DesktopTheme.Secondary;
+   status.Text="Loading content...";
+   try
+   {
+    var items=await auth.ApiClient.GetAsync<List<SharedContent>>("api/content");
+    if(IsDisposed)return;
+    PopulateColumn(received,items,false,"Nothing shared with you yet.");
+    PopulateColumn(sent,items,true,"Share your first item.");
+    status.Text=items.Count+" item(s) · Updated "+DateTime.Now.ToShortTimeString();
+   }
+   catch(Exception ex)
+   {
+    if(IsDisposed)return;
+    status.ForeColor=DesktopTheme.Danger;
+    status.Text="Could not load content: "+ex.Message;
+   }
+   finally
+   {
+    loading=false;
+    if(!IsDisposed)refresh.Enabled=true;
+   }
+  }
+
+  void PopulateColumn(FlowLayoutPanel list,List<SharedContent> items,bool mine,string emptyText)
+  {
+   list.SuspendLayout();
+   try
+   {
+    while(list.Controls.Count>0)list.Controls[0].Dispose();
+    foreach(var item in items)
+    {
+     if(item.Mine!=mine)continue;
+     var card=Button(item.Title+Environment.NewLine+
+      (mine?"To "+item.Recipient:"From "+item.Owner)+"  ·  "+item.Status+" / "+item.PolicyStatus,primary:false);
+     card.Height=76;
+     card.Padding=new Padding(10,0,10,0);
+     card.TextAlign=ContentAlignment.MiddleLeft;
+     card.ForeColor=ink;
+     card.AutoEllipsis=true;
+     card.AccessibleName=card.Text;
+     card.Click+=async (s,e)=>{if(item.Mine)await Manage(item);else await Open(item);};
+     list.Controls.Add(card);
+    }
+    if(list.Controls.Count==0)
+    {
+     var empty=Label(emptyText);
+     empty.ForeColor=DesktopTheme.Secondary;
+     list.Controls.Add(empty);
+    }
+    ResizeCards(list);
+   }
+   finally{list.ResumeLayout();}
+  }
+
   static Guid DeviceKey() {var directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Aperture");Directory.CreateDirectory(directory);var path=Path.Combine(directory,"device-id.txt");Guid key;if(File.Exists(path)&&Guid.TryParse(File.ReadAllText(path),out key)&&key!=Guid.Empty)return key;key=Guid.NewGuid();File.WriteAllText(path,key.ToString("D"));return key;}
   async Task RegisterDevice() {try{var result=await auth.ApiClient.PostAsync<DeviceRegistration,DeviceRegistrationResult>("api/devices",new DeviceRegistration {DeviceKey=DeviceKey(),DeviceName=Environment.MachineName});MessageBox.Show(result.Trusted?"This device is marked trusted.":"Device registered. An administrator must approve it before trusted-device policies allow access.","Device status");}catch(Exception ex){MessageBox.Show(ex.Message,"Device registration failed");}}
   async Task Manage(SharedContent item) {
    using(var form=new Form {Text="Manage shared content",Size=new Size(500,360),StartPosition=FormStartPosition.CenterParent}) {
+    DesktopTheme.Apply(form);
     var description=Label(item.Title+" - shared with "+item.Recipient+"\nAccess: "+item.Status+" - Policy: "+item.PolicyStatus);description.Location=new Point(20,20);description.AutoSize=false;description.Size=new Size(370,65);form.Controls.Add(description);
     var toggle=Button(item.PolicyStatus=="Active"?"Pause access":"Resume access",165);toggle.Location=new Point(20,100);toggle.Enabled=item.Status=="Active";form.Controls.Add(toggle);
-    var revoke=Button("Revoke",130);revoke.Location=new Point(200,100);revoke.Enabled=item.Status=="Active";form.Controls.Add(revoke);
+    var revoke=Button("Revoke",130,false,true);revoke.Location=new Point(200,100);revoke.Enabled=item.Status=="Active";form.Controls.Add(revoke);
     toggle.Click+=async (sender,args)=>{toggle.Enabled=false;try{await auth.ApiClient.PostAsync<PolicyUpdate,object>("api/content/"+item.Id+"/policy",new PolicyUpdate {Status=item.PolicyStatus=="Active"?"Paused":"Active"});form.DialogResult=DialogResult.OK;form.Close();}catch(Exception ex){MessageBox.Show(ex.Message,"Policy update failed");toggle.Enabled=true;}};
     revoke.Click+=async (sender,args)=>{if(MessageBox.Show("Revoke this recipient's access?","Confirm revocation",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;revoke.Enabled=false;try{await auth.ApiClient.PostAsync("api/content/"+item.Id+"/revoke");form.DialogResult=DialogResult.OK;form.Close();}catch(Exception ex){MessageBox.Show(ex.Message,"Revocation failed");revoke.Enabled=true;}};
     var editTime=Button("Edit time window",195);editTime.Location=new Point(20,155);form.Controls.Add(editTime);
@@ -46,6 +203,7 @@ namespace Aperture_Desktop.Forms {
   }
   Task<bool> EditConditions(SharedContent item,bool location) {
    using(var form=new Form {Text=location?"Allowed viewing area":"Viewing time window",Size=new Size(550,340),StartPosition=FormStartPosition.CenterParent}) {
+    DesktopTheme.Apply(form);
     var start=new DateTimePicker {Location=new Point(25,60),Width=230,Format=DateTimePickerFormat.Custom,CustomFormat="yyyy-MM-dd HH:mm",ShowCheckBox=true,Checked=item.StartTime.HasValue,Value=item.StartTime.HasValue?item.StartTime.Value.ToLocalTime():DateTime.Now};
     var expiry=new DateTimePicker {Location=new Point(275,60),Width=230,Format=DateTimePickerFormat.Custom,CustomFormat="yyyy-MM-dd HH:mm",ShowCheckBox=true,Checked=item.ExpiresAt.HasValue,Value=item.ExpiresAt.HasValue?item.ExpiresAt.Value.ToLocalTime():DateTime.Now.AddHours(1)};
     var lat=new NumericUpDown {Location=new Point(25,60),Width=145,Minimum=-90,Maximum=90,DecimalPlaces=6,Value=(decimal)(item.Latitude??0)};
@@ -63,45 +221,138 @@ namespace Aperture_Desktop.Forms {
     return Task.FromResult(form.ShowDialog(this)==DialogResult.OK);
    }
   }
-  async Task Share() {using(var form=new Form {Text="Share New Content",Size=new Size(670,850),StartPosition=FormStartPosition.CenterParent,BackColor=Color.White,AutoScroll=true}) {
-   var title=new TextBox {Location=new Point(24,55),Width=500};var recipient=new TextBox {Location=new Point(24,115),Width=500};var body=new TextBox {Location=new Point(24,175),Width=500,Height=240,Multiline=true,ScrollBars=ScrollBars.Vertical};
-   string imageData=null;string imageType=null;
-   var choose=Button("Select PNG/JPEG",160);choose.Location=new Point(24,420);
-   var selection=new Label {Text="Text content selected",Location=new Point(200,428),Width=320};
-   choose.Click+=(sender,args)=>{using(var dialog=new OpenFileDialog {Filter="Images|*.png;*.jpg;*.jpeg",Title="Choose an image"}){if(dialog.ShowDialog(form)==DialogResult.OK){var info=new FileInfo(dialog.FileName);if(info.Length>5*1024*1024){MessageBox.Show("Maximum image size is 5 MB.");return;}imageData=Convert.ToBase64String(File.ReadAllBytes(dialog.FileName));imageType=Path.GetExtension(dialog.FileName).Equals(".png",StringComparison.OrdinalIgnoreCase)?"image/png":"image/jpeg";selection.Text=info.Name;}}};
-   var expiry=new DateTimePicker {Location=new Point(24,495),Width=240,Format=DateTimePickerFormat.Custom,CustomFormat="yyyy-MM-dd HH:mm",ShowCheckBox=true,Checked=false,Value=DateTime.Now.AddDays(7)};
-   var max=new NumericUpDown {Location=new Point(285,495),Width=90,Minimum=0,Maximum=1000000,Value=0};var trusted=new CheckBox {Text="Require approved device",Location=new Point(24,590),Width=250};var submit=Button("Share securely");submit.Location=new Point(24,1075);
-   var start=new DateTimePicker {Location=new Point(24,550),Width=240,Format=DateTimePickerFormat.Custom,CustomFormat="yyyy-MM-dd HH:mm",ShowCheckBox=true,Checked=false,Value=DateTime.Now.AddMinutes(5)};
-   var country=new TextBox {Location=new Point(24,660),Width=180};var region=new TextBox {Location=new Point(220,660),Width=180};var city=new TextBox {Location=new Point(416,660),Width=180};
-   var cameraEnabled=new CheckBox {Text="Require camera-based detection for all viewers",Location=new Point(24,710),AutoSize=true,Checked=false};
-   var blockPhones=new CheckBox {Text="Hide content when a phone is detected",Location=new Point(44,745),AutoSize=true,Checked=true};
-   var blockPeople=new CheckBox {Text="Hide content when multiple people are detected",Location=new Point(44,780),AutoSize=true,Checked=true};
-   var requireViewer=new CheckBox {Text="Hide content when no viewer is detected",Location=new Point(44,815),AutoSize=true};
+  Label FieldLabel(string text,int x,int y,bool heading=false)
+  {
+   var label=Label(text,heading?12:10,heading);
+   label.Location=new Point(x,y);
+   label.ForeColor=heading?DesktopTheme.Primary:DesktopTheme.Secondary;
+   return label;
+  }
+  async Task Share()
+  {
+   using(var form=new Form {Text="Share New Content",Size=new Size(1080,740),MinimumSize=new Size(940,520),
+    StartPosition=FormStartPosition.CenterParent})
+   {
+   DesktopTheme.Apply(form);
+   var workArea=Screen.FromControl(this).WorkingArea;
+   form.Size=new Size(Math.Min(form.Width,workArea.Width),Math.Min(form.Height,workArea.Height));
+   var layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=2,Padding=new Padding(16)};
+   layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+   layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,500));
+   layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+   layout.RowStyles.Add(new RowStyle(SizeType.Absolute,58));
+   form.Controls.Add(layout);
+
+   var composition=new Panel {Dock=DockStyle.Fill,BackColor=DesktopTheme.Surface,AutoScroll=true,Margin=new Padding(0,0,8,0)};
+   var restrictions=new Panel {Dock=DockStyle.Fill,BackColor=DesktopTheme.Surface,AutoScroll=true,Margin=new Padding(8,0,0,0)};
+   DesktopTheme.RoundCorners(composition);
+   DesktopTheme.RoundCorners(restrictions);
+   layout.Controls.Add(composition,0,0);
+   layout.Controls.Add(restrictions,1,0);
+   var contentHeading=Label("Content",16,true);
+   contentHeading.ForeColor=DesktopTheme.Primary;
+   contentHeading.Location=new Point(20,16);
+   var restrictionsHeading=Label("Viewing restrictions",16,true);
+   restrictionsHeading.ForeColor=DesktopTheme.Primary;
+   restrictionsHeading.Location=new Point(20,16);
+   restrictions.Controls.Add(restrictionsHeading);
+
+   var title=new TextBox();
+   var recipient=new TextBox();
+   var body=new TextBox {Multiline=true,ScrollBars=ScrollBars.Vertical,AcceptsReturn=true};
+   var choose=Button("Select PNG/JPEG",160,false);
+   var selection=Label("Text content selected");
+   selection.AutoSize=false;
+   selection.AutoEllipsis=true;
+   selection.ForeColor=DesktopTheme.Secondary;
+   composition.Controls.AddRange(new Control[] {contentHeading,FieldLabel("Title",20,62),title,
+    FieldLabel("Recipient username",20,124),recipient,FieldLabel("Content text",20,186),body,choose,selection});
+   Action fitComposition=()=>
+   {
+    int width=Math.Max(100,composition.ClientSize.Width-40-SystemInformation.VerticalScrollBarWidth);
+    int bodyHeight=Math.Max(110,composition.ClientSize.Height-288);
+    title.SetBounds(20,86,width,title.PreferredHeight);
+    recipient.SetBounds(20,148,width,recipient.PreferredHeight);
+    body.SetBounds(20,210,width,bodyHeight);
+    choose.Location=new Point(20,220+bodyHeight);
+    selection.SetBounds(190,230+bodyHeight,Math.Max(40,width-170),28);
+   };
+   composition.ClientSizeChanged+=(s,e)=>fitComposition();
+   fitComposition();
+
+   string imageData=null;
+   string imageType=null;
+   choose.Click+=(sender,args)=>
+   {
+    using(var dialog=new OpenFileDialog {Filter="Images|*.png;*.jpg;*.jpeg",Title="Choose an image"})
+    {
+     if(dialog.ShowDialog(form)!=DialogResult.OK)return;
+     var info=new FileInfo(dialog.FileName);
+     if(info.Length>5*1024*1024){MessageBox.Show("Maximum image size is 5 MB.");return;}
+     imageData=Convert.ToBase64String(File.ReadAllBytes(dialog.FileName));
+     imageType=Path.GetExtension(dialog.FileName).Equals(".png",StringComparison.OrdinalIgnoreCase)?"image/png":"image/jpeg";
+     selection.Text=info.Name;
+    }
+   };
+
+   var start=new DateTimePicker {Location=new Point(20,84),Width=204,Format=DateTimePickerFormat.Custom,
+    CustomFormat="yyyy-MM-dd HH:mm",ShowCheckBox=true,Checked=false,Value=DateTime.Now.AddMinutes(5)};
+   var expiry=new DateTimePicker {Location=new Point(246,84),Width=204,Format=DateTimePickerFormat.Custom,
+    CustomFormat="yyyy-MM-dd HH:mm",ShowCheckBox=true,Checked=false,Value=DateTime.Now.AddDays(7)};
+   var max=new NumericUpDown {Location=new Point(20,144),Width=120,Minimum=0,Maximum=1000000};
+   var trusted=new CheckBox {Text="Require approved device",Location=new Point(246,143),AutoSize=true};
+
+   var country=new TextBox {Location=new Point(20,233),Width=135};
+   var region=new TextBox {Location=new Point(166,233),Width=135};
+   var city=new TextBox {Location=new Point(312,233),Width=135};
+   var precise=new CheckBox {Text="Require an exact viewing area",Location=new Point(20,275),AutoSize=true};
+   var latitude=new NumericUpDown {Location=new Point(20,323),Width=135,Minimum=-90,Maximum=90,DecimalPlaces=6,Enabled=false};
+   var longitude=new NumericUpDown {Location=new Point(166,323),Width=135,Minimum=-180,Maximum=180,DecimalPlaces=6,Enabled=false};
+   var radius=new NumericUpDown {Location=new Point(312,323),Width=135,Minimum=1,Maximum=20000000,Value=500,Enabled=false};
+   precise.CheckedChanged+=(s,e)=>
+   {
+    latitude.Enabled=longitude.Enabled=radius.Enabled=precise.Checked;
+    country.Enabled=region.Enabled=city.Enabled=!precise.Checked;
+   };
+
+   var cameraEnabled=new CheckBox {Text="Require camera-based detection for all viewers",Location=new Point(20,406),AutoSize=true};
+   var blockPhones=new CheckBox {Text="Hide content when a phone is detected",Location=new Point(38,434),AutoSize=true,Checked=true};
+   var blockPeople=new CheckBox {Text="Hide content when multiple people are detected",Location=new Point(38,462),AutoSize=true,Checked=true};
+   var requireViewer=new CheckBox {Text="Hide content when no viewer is detected",Location=new Point(38,490),AutoSize=true};
    Action updateCameraOptions=()=>{blockPhones.Enabled=blockPeople.Enabled=requireViewer.Enabled=cameraEnabled.Checked;};
-   cameraEnabled.CheckedChanged+=(s,e)=>updateCameraOptions();updateCameraOptions();
-   form.Controls.AddRange(new Control[] {cameraEnabled,blockPhones,blockPeople,requireViewer,new Label {Text="Viewers cannot turn off your camera rules. Camera failures hide content.\nExisting time, location, device and view-limit rules also apply.",Location=new Point(24,855),Size=new Size(570,48)}});
-   form.Controls.AddRange(new Control[] {new Label {Text="Title",Location=new Point(24,30),AutoSize=true},title,new Label {Text="Recipient username",Location=new Point(24,90),AutoSize=true},recipient,new Label {Text="Content text",Location=new Point(24,150),AutoSize=true},body,choose,selection,new Label {Text="Expiration (optional)",Location=new Point(24,473),AutoSize=true},expiry,new Label {Text="Max views (0 = unlimited)",Location=new Point(285,473),AutoSize=true},max,new Label {Text="Start time (optional)",Location=new Point(24,527),AutoSize=true},start,trusted,
-    new Label {Text="Allowed country/code (optional)",Location=new Point(24,637),AutoSize=true},country,
-    new Label {Text="Allowed state/region (optional)",Location=new Point(220,637),AutoSize=true},region,
-    new Label {Text="Allowed city (optional)",Location=new Point(416,637),AutoSize=true},city,submit});
-   var precise=new CheckBox {Text="Require an exact viewing area",Location=new Point(24,925),AutoSize=true};
-   var latitude=new NumericUpDown {Location=new Point(24,990),Width=170,Minimum=-90,Maximum=90,DecimalPlaces=6};
-   var longitude=new NumericUpDown {Location=new Point(220,990),Width=170,Minimum=-180,Maximum=180,DecimalPlaces=6};
-   var radius=new NumericUpDown {Location=new Point(416,990),Width=170,Minimum=1,Maximum=20000000,Value=500};
-   precise.CheckedChanged+=(s,e)=>{latitude.Enabled=longitude.Enabled=radius.Enabled=precise.Checked;country.Enabled=region.Enabled=city.Enabled=!precise.Checked;};
-   latitude.Enabled=longitude.Enabled=radius.Enabled=false;
-   form.Controls.AddRange(new Control[] {precise,latitude,longitude,radius,new Label {Text="Latitude",Location=new Point(24,965)},new Label {Text="Longitude",Location=new Point(220,965)},new Label {Text="Radius (meters)",Location=new Point(416,965)},new Label {Text="Viewers must allow Windows/browser location sharing while viewing.",Location=new Point(24,1030),AutoSize=true}});
+   cameraEnabled.CheckedChanged+=(s,e)=>updateCameraOptions();
+   updateCameraOptions();
+
+   restrictions.Controls.AddRange(new Control[]
+   {
+    FieldLabel("Start time (optional)",20,61),start,FieldLabel("Expiration (optional)",246,61),expiry,
+    FieldLabel("Max views (0 = unlimited)",20,121),max,trusted,
+    FieldLabel("Allowed location",20,180,true),
+    FieldLabel("Country or code",20,210),country,FieldLabel("State or region",166,210),region,FieldLabel("City",312,210),city,
+    precise,FieldLabel("Latitude",20,300),latitude,FieldLabel("Longitude",166,300),longitude,
+    FieldLabel("Radius (meters)",312,300),radius,
+    FieldLabel("Viewers must allow device location sharing.",20,355),
+    FieldLabel("Camera protection",20,378,true),cameraEnabled,blockPhones,blockPeople,requireViewer
+   });
+   foreach(var field in new[] {title,recipient,body,country,region,city})DesktopTheme.StyleInput(field);
+   var footer=new FlowLayoutPanel {Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,WrapContents=false};
+   var submit=Button("Share securely");
+   footer.Controls.Add(submit);
+   layout.Controls.Add(footer,0,1);
+   layout.SetColumnSpan(footer,2);
    submit.Click+=async (s,e)=>{submit.Enabled=false;try{if(cameraEnabled.Checked){var capabilities=await auth.ApiClient.GetAsync<ContentCapabilities>("api/content/capabilities");if(capabilities==null||capabilities.CameraPolicyVersion<1)throw new InvalidOperationException("Update the API before sharing camera-restricted content.");}await auth.ApiClient.PostAsync<CreateContentRequest,SharedContent>("api/content",new CreateContentRequest {CameraRestrictions=new CameraRestrictions {Enabled=cameraEnabled.Checked,BlockPhones=cameraEnabled.Checked&&blockPhones.Checked,BlockMultiplePeople=cameraEnabled.Checked&&blockPeople.Checked,RequireViewer=cameraEnabled.Checked&&requireViewer.Checked},Title=title.Text,Recipient=recipient.Text,Body=body.Text,FileDataBase64=imageData,FileType=imageType,ExpiresAt=expiry.Checked?(DateTime?)expiry.Value.ToUniversalTime():null,StartTime=start.Checked?(DateTime?)start.Value.ToUniversalTime():null,MaxViews=max.Value==0?(int?)null:(int)max.Value,RequireTrustedDevice=trusted.Checked,AllowedCountry=precise.Checked?null:country.Text,AllowedRegion=precise.Checked?null:region.Text,AllowedCity=precise.Checked?null:city.Text,Latitude=precise.Checked?(double?)latitude.Value:null,Longitude=precise.Checked?(double?)longitude.Value:null,RadiusMeters=precise.Checked?(double?)radius.Value:null});form.DialogResult=DialogResult.OK;form.Close();}catch(Exception ex){MessageBox.Show(ex.Message,"Share failed");}finally{if(!submit.IsDisposed)submit.Enabled=true;}};
    if(form.ShowDialog(this)==DialogResult.OK)await LoadContent();
   }}
   async Task Open(SharedContent item) {
    int sessionId=0;
-   using(var viewer=new Form {Text="Aperture - "+item.Title,Size=new Size(690,570),StartPosition=FormStartPosition.CenterParent,BackColor=Color.White}) {
-    var heading=Label(item.Title,18,true);heading.Dock=DockStyle.Top;heading.Height=60;heading.AutoSize=false;
+   using(var viewer=new Form {Text="Aperture - "+item.Title,Size=new Size(900,640),MinimumSize=new Size(560,420),StartPosition=FormStartPosition.CenterParent}) {
+    DesktopTheme.Apply(viewer);
+    viewer.Padding=new Padding(18);
+    var heading=Label(item.Title,18,true);heading.ForeColor=DesktopTheme.Primary;heading.AutoEllipsis=true;heading.Dock=DockStyle.Top;heading.Height=60;heading.AutoSize=false;
     var badge=Label("Verifying viewing restrictions...");badge.Dock=DockStyle.Bottom;badge.Height=48;badge.AutoSize=false;
-    var text=new TextBox {Multiline=true,ReadOnly=true,Dock=DockStyle.Fill,ScrollBars=ScrollBars.Vertical,Font=new Font("Segoe UI",11),BorderStyle=BorderStyle.None};
+    var text=new TextBox {Multiline=true,ReadOnly=true,Dock=DockStyle.Fill,ScrollBars=ScrollBars.Vertical,Font=new Font("Segoe UI",11),BorderStyle=BorderStyle.None,BackColor=DesktopTheme.Input,ForeColor=ink};
     var picture=new PictureBox {Dock=DockStyle.Fill,SizeMode=PictureBoxSizeMode.Zoom,Visible=false};
-    var content=new Panel {Dock=DockStyle.Fill};content.Controls.Add(text);content.Controls.Add(picture);
+    var content=new Panel {Dock=DockStyle.Fill,BackColor=DesktopTheme.Surface,Padding=new Padding(14)};DesktopTheme.RoundCorners(content);content.Controls.Add(text);content.Controls.Add(picture);
     viewer.Controls.Add(content);viewer.Controls.Add(badge);viewer.Controls.Add(heading);
     var guard=CameraGuard.Attach(viewer,badge,ink,new CameraRestrictions {Enabled=false});
     guard.Protect(content);
@@ -122,7 +373,7 @@ namespace Aperture_Desktop.Forms {
     var shareLocation=new CheckBox {Text="Share device location while viewing (Windows location permission required)",Dock=DockStyle.Bottom,Height=28,Checked=item.Latitude.HasValue};
     shareLocation.CheckedChanged+=(s,e)=>{if(shareLocation.Checked)location.Start();else location.Stop();};
     viewer.Controls.Add(shareLocation);if(shareLocation.Checked)location.Start();
-    var hide=Button("Hide for 30 seconds",180);hide.Dock=DockStyle.Bottom;viewer.Controls.Add(hide);
+    var hide=Button("Hide for 30 seconds",180,false);hide.Dock=DockStyle.Bottom;viewer.Controls.Add(hide);
     var timer=new Timer {Interval=5000};bool checking=false;
     Func<Task> check=async ()=>{
      if(checking||viewer.IsDisposed)return;
