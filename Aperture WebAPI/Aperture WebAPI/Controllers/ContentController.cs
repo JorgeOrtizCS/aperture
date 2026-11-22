@@ -6,6 +6,7 @@ using MySql.Data.MySqlClient;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Web;
 using System.Web.Http;
 using Aperture_WebAPI.Config;
@@ -23,10 +24,8 @@ namespace Aperture_WebAPI.Controllers {
   // Keep both bindings in the same worker process as the login tokens.
   sealed class SessionBinding {public Guid DeviceKey;public string IpAddress;public int CameraPolicyVersion;}
   static readonly ConcurrentDictionary<int,SessionBinding> SessionBindings=new ConcurrentDictionary<int,SessionBinding>();
-  static string StorageRoot {get {var path=HttpContext.Current.Server.MapPath("~/App_Data/ContentFiles");Directory.CreateDirectory(path);return path;}}
-  static string StoragePath(int id) {return Path.Combine(StorageRoot,id.ToString()+".bin");}
   static SessionResult ReadContent(int id,string title,string fileType) {
-   var bytes=File.ReadAllBytes(StoragePath(id));
+   var bytes=ContentStorage.Read(id);
    return fileType=="text/plain" ? new SessionResult {AccessGranted=true,Message="Access granted.",Title=title,FileType=fileType,Body=System.Text.Encoding.UTF8.GetString(bytes)} :
     new SessionResult {AccessGranted=true,Message="Access granted.",Title=title,FileType=fileType,FileDataBase64=Convert.ToBase64String(bytes)};
   }
@@ -71,17 +70,17 @@ namespace Aperture_WebAPI.Controllers {
     if(string.IsNullOrWhiteSpace(request.Body) || request.Body.Length>10000)return BadRequest("Text is required (up to 10000 characters).");
     bytes=System.Text.Encoding.UTF8.GetBytes(request.Body);fileType="text/plain";
    }
-   int newId=0;bool committed=false;
+   int newId=0;bool committed=false;bool stored=false;
    try{using(var db=new MySqlConnection(ConnectionStrings.Database)) {db.Open();using(var tx=db.BeginTransaction()) {try {
     int recipient;using(var c=Command(db,tx,"SELECT UserID FROM Users WHERE Username=@name AND UserID<>@sender")) {Param(c,"@name",request.Recipient.Trim());Param(c,"@sender",RequestUser.Get().Id);var v=c.ExecuteScalar();if(v==null){tx.Rollback();return BadRequest("Recipient not found.");}recipient=(int)v;}
     using(var c=Command(db,tx,"INSERT INTO Content(SenderID,File_Type,File_Name,Upload_Date) VALUES(@sender,@type,@name,UTC_TIMESTAMP())")) {Param(c,"@sender",RequestUser.Get().Id);Param(c,"@type",fileType);Param(c,"@name",request.Title.Trim());c.ExecuteNonQuery();newId=checked((int)c.LastInsertedId);}
     using(var c=Command(db,tx,"INSERT INTO ContentRecipient(UserID,ContentID,Access_Status,Date_Shared) VALUES(@recipient,@id,'Active',UTC_TIMESTAMP())")) {Param(c,"@recipient",recipient);Param(c,"@id",newId);c.ExecuteNonQuery();}
     var requirements=new ViewingRequirements {StartTime=request.StartTime,ExpiresAt=request.ExpiresAt,MaxViews=request.MaxViews,RequireTrustedDevice=request.RequireTrustedDevice,ScreenshotRestriction=request.ScreenshotRestriction,Location=location,CameraRestrictions=camera};
     using(var c=Command(db,tx,"INSERT INTO AccessPolicy(ContentID,PolicyStatus,Requirements,DateCreated) VALUES(@id,'Active',@requirements,UTC_TIMESTAMP())")) {Param(c,"@id",newId);Param(c,"@requirements",JsonConvert.SerializeObject(requirements));c.ExecuteNonQuery();}
-    File.WriteAllBytes(StoragePath(newId),bytes);
+    ContentStorage.Write(newId,bytes);stored=true;
     tx.Commit();committed=true;return Ok(new {id=newId});
    }catch{tx.Rollback();throw;}}}}
-   finally{if(!committed && newId!=0){var path=StoragePath(newId);if(File.Exists(path))File.Delete(path);}}
+   finally{if(!committed && stored)ContentStorage.Delete(newId);}
   }
   static bool ValidImage(byte[] bytes,string type) {
    if(bytes.Length<8)return false;
@@ -182,6 +181,7 @@ namespace Aperture_WebAPI.Controllers {
     if(reason!=null)return new SessionResult {AccessGranted=false,Message=reason,DeviceVerified=r.GetInt32(5)!=0,LocationVerified=locationVerified,CameraRestrictions=camera};
     try{var result=ReadContent(id,r.GetString(0),r.GetString(1));result.DeviceVerified=r.GetInt32(5)!=0;result.LocationVerified=locationVerified;result.CameraRestrictions=camera;return result;}
     catch(IOException){return Deny("Content file is unavailable.");}
+    catch(CryptographicException){return Deny("Content file is unavailable.");}
    }}
   }
   static SessionResult Deny(string message){return new SessionResult {AccessGranted=false,Message=message};}
