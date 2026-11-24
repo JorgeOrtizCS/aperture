@@ -454,7 +454,7 @@ class ApiSession extends ChangeNotifier {
       throw const ApiException(ApiFailure.ownerControlUnconfirmed);
     }
     if (!_items.any(
-      (item) => item.id == id && item.mine && item.status != 'Revoked',
+      (item) => item.id == id && item.mine && item.isListedActive,
     )) {
       throw const ApiException(ApiFailure.denied);
     }
@@ -598,6 +598,11 @@ class ApiSession extends ChangeNotifier {
     String key, {
     LocationFix? location,
   }) {
+    bool listingDenied() =>
+        _items.any((item) => item.id == id && item.isListedDenied);
+    if (listingDenied()) {
+      return Future.error(const ApiException(ApiFailure.denied));
+    }
     late final Future<ApiAccessDecision> opening;
     opening = _authorized(
       (token) => api.open(token, id, key, location: location),
@@ -611,6 +616,7 @@ class ApiSession extends ChangeNotifier {
           await _endWithToken(oldToken, sid).catchError((Object _) {});
         }
       },
+      isCurrent: () => !listingDenied(),
     ).whenComplete(() => _viewingOpens.remove(opening));
     _viewingOpens.add(opening);
     return opening;

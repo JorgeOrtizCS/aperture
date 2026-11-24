@@ -273,6 +273,33 @@ void main() {
     expect(account.user!.id, 2);
   });
 
+  test(
+    'a newly denied listing discards an already pending viewing grant',
+    () async {
+      await login();
+      fake.contents = [contentJson()];
+      await account.refresh();
+      final pending = Completer<ApiReply>();
+      fake.routes['/api/content/7/sessions'] = (_) => pending.future;
+      final opening = expectLater(
+        account.openViewing(7, account.deviceKey!),
+        throwsA(apiError(ApiFailure.stale)),
+      );
+      fake.contents = [contentJson(status: 'Denied')];
+      try {
+        await account.refresh();
+      } finally {
+        pending.complete(jsonReply(accessJson()));
+        await opening;
+      }
+      expect(account.items.single.status, 'Denied');
+      final end = fake.calls.singleWhere(
+        (call) => call.uri.path.endsWith('/41/end'),
+      );
+      expect(end.headers['Authorization'], 'Bearer synthetic-opaque-token');
+    },
+  );
+
   test('current 401 clears identity and cached content', () async {
     await login();
     fake.contents = [contentJson()];
@@ -315,6 +342,10 @@ void main() {
     ],
     [contentJson()..['Mine'] = 'true'],
     [contentJson()..['Status'] = 'Unrecognized'],
+    [contentJson()..['Status'] = 'denied'],
+    [contentJson()..['Status'] = 'Denied '],
+    [contentJson()..['Status'] = 0],
+    [contentJson()..['Status'] = null],
   ]) {
     test('unexpected content-list shape fails closed: $value', () async {
       await login();
@@ -324,6 +355,51 @@ void main() {
         throwsA(apiError(ApiFailure.malformed)),
       );
       expect(account.items, isEmpty);
+    });
+  }
+
+  for (final mine in [false, true]) {
+    test('mixed listings keep denied rows restricted for mine=$mine', () async {
+      await login();
+      fake.contents = [
+        contentJson(status: 'Denied', mine: mine),
+        contentJson(id: 8, mine: true),
+        contentJson(id: 9, status: 'Revoked'),
+      ];
+      await account.refresh();
+      expect(account.items.map((item) => (item.id, item.status)), [
+        (7, 'Denied'),
+        (8, 'Active'),
+        (9, 'Revoked'),
+      ]);
+      expect(account.items.first.mine, mine);
+      expect(account.contentListingError, isNull);
+      for (final action in [
+        () => account.setPolicy(7, 'Paused'),
+        () => account.revoke(7),
+        () => account.setLocation(
+          7,
+          const LocationZone(26, -80, 100),
+          isCurrent: () => true,
+        ),
+        () => account.setTimeWindow(7, (
+          startTime: null,
+          expiresAt: null,
+        ), isCurrent: () => true),
+      ]) {
+        await expectLater(action(), throwsA(apiError(ApiFailure.denied)));
+      }
+      await expectLater(
+        account.openViewing(7, account.deviceKey!),
+        throwsA(apiError(ApiFailure.denied)),
+      );
+      expect(
+        fake.calls.where((call) => call.uri.path.contains('/content/7/')),
+        isEmpty,
+      );
+      await account.setPolicy(8, 'Paused');
+      expect(account.items.first.status, 'Denied');
+      expect(account.items[1].policyStatus, 'Paused');
     });
   }
 

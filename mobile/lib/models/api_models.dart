@@ -156,6 +156,9 @@ class ApiContent {
   final LocationZone? locationZone;
   final NetworkLocation networkLocation;
 
+  bool get isListedActive => status == 'Active';
+  bool get isListedDenied => status == 'Denied';
+
   const ApiContent({
     required this.id,
     required this.title,
@@ -188,7 +191,7 @@ class ApiContent {
     final j = apiObject(value);
     final status = apiString(j['Status']);
     final policy = apiString(j['PolicyStatus']);
-    if (!{'Active', 'Revoked'}.contains(status) ||
+    if (!{'Active', 'Revoked', 'Denied'}.contains(status) ||
         !{'Active', 'Paused'}.contains(policy)) {
       throw const ApiException(ApiFailure.malformed);
     }

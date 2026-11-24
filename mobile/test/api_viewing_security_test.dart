@@ -786,6 +786,7 @@ void main() {
     ('drops the item', <Map<String, Object?>>[]),
     ('becomes owner-only', [contentJson(mine: true)]),
     ('confirms a sender pause', [contentJson(policy: 'Paused')]),
+    ('reports denied access', [contentJson(status: 'Denied')]),
   ]) {
     apiWidgets('recipient listing $change while the secure viewer is open', (
       tester,
