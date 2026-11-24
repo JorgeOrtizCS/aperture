@@ -23,6 +23,7 @@ class _ApiLocationEditScreenState extends State<ApiLocationEditScreen> {
   late final int _identity;
   late SenderLocationDraft _draft;
   LocationZone? _baselineZone;
+  late NetworkLocation _baselineNetworkLocation;
   ModalRoute<dynamic>? _route;
   int _generation = 0, _editorVersion = 0;
   bool _wasCurrent = true,
@@ -37,12 +38,18 @@ class _ApiLocationEditScreenState extends State<ApiLocationEditScreen> {
       .toList();
   LocationZone? get _listedZone =>
       _owned.isEmpty ? null : _owned.first.locationZone;
+  NetworkLocation get _listedNetworkLocation =>
+      _owned.isEmpty ? const NetworkLocation() : _owned.first.networkLocation;
   bool get _eligible =>
       !_invalidated &&
       widget.account.authenticated &&
       widget.account.identityVersion == _identity &&
       _owned.any((item) => item.status != 'Revoked') &&
-      _owned.map((item) => item.locationZone).toSet().length == 1;
+      _owned
+              .map((item) => (item.locationZone, item.networkLocation))
+              .toSet()
+              .length ==
+          1;
   bool get _busy => _pending || widget.account.pending(widget.contentId);
   bool get _ownerActionUnconfirmed =>
       widget.account.ownerControlUnconfirmed(widget.contentId);
@@ -60,6 +67,7 @@ class _ApiLocationEditScreenState extends State<ApiLocationEditScreen> {
     super.initState();
     _identity = widget.account.identityVersion;
     _baselineZone = _listedZone;
+    _baselineNetworkLocation = _listedNetworkLocation;
     _draft = SenderLocationDraft.forExistingArea(_baselineZone);
     widget.account.addListener(_accountChanged);
   }
@@ -71,7 +79,9 @@ class _ApiLocationEditScreenState extends State<ApiLocationEditScreen> {
       _pending = false;
       _notice = null;
       _error = null;
-    } else if (!_pending && _listedZone != _baselineZone) {
+    } else if (!_pending &&
+        (_listedZone != _baselineZone ||
+            _listedNetworkLocation != _baselineNetworkLocation)) {
       _needsRefresh = true;
       _notice = 'The listed area changed. Refresh before editing again.';
     }
@@ -122,6 +132,7 @@ class _ApiLocationEditScreenState extends State<ApiLocationEditScreen> {
       await widget.account.refresh(isCurrent: () => _current(generation));
       if (!_current(generation)) return;
       _baselineZone = _listedZone;
+      _baselineNetworkLocation = _listedNetworkLocation;
       _draft = SenderLocationDraft.forExistingArea(_baselineZone);
       ++_editorVersion;
       _needsRefresh = false;
@@ -157,11 +168,12 @@ class _ApiLocationEditScreenState extends State<ApiLocationEditScreen> {
       );
       if (!_current(generation)) return;
       _baselineZone = zone;
+      _baselineNetworkLocation = const NetworkLocation();
       _notice = 'Viewing area update acknowledged by the server.';
       try {
         await widget.account.refresh(isCurrent: () => _current(generation));
         if (!_current(generation)) return;
-        if (_listedZone != zone) {
+        if (_listedZone != zone || _listedNetworkLocation.enabled) {
           _needsRefresh = true;
           _notice = 'The server acknowledged the update, but its listed area differs. Refresh before editing again.';
         } else {
@@ -208,6 +220,10 @@ class _ApiLocationEditScreenState extends State<ApiLocationEditScreen> {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 12),
+                if (_listedNetworkLocation.enabled)
+                  Text(
+                    'Current network location: ${_listedNetworkLocation.parts.join(', ')}. Saving a precise area replaces it.',
+                  ),
                 const Text(
                   'Saving replaces the location restriction for every recipient of this shared content. It does not restore revoked access or ended viewing sessions.',
                 ),

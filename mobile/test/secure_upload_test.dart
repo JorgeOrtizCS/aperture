@@ -13,6 +13,7 @@ import 'package:aperture/services/share_upload_draft.dart';
 import 'package:aperture/widgets/api_scope.dart';
 import 'package:aperture/widgets/content_restrictions_section.dart';
 import 'package:aperture/widgets/content_restrictions_summary.dart';
+import 'package:aperture/widgets/restriction_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -178,6 +179,7 @@ void main() {
         restrictions: ContentRestrictions.demoDefaults.copyWith(
           accessDuration: AccessDuration.oneWeek,
           viewLimit: 5,
+          viewingStartsAt: DateTime.parse('2026-11-05T01:30:00-05:00'),
           locationArea: const SenderLocationDraft(
             enabled: true,
             latitude: '26',
@@ -192,6 +194,7 @@ void main() {
         'FileDataBase64': base64Encode(bytes),
         'ScreenshotRestriction': true,
         'RequireTrustedDevice': false,
+        'StartTime': '2026-11-05T06:30:00.000Z',
         'ExpiresAt': '2026-11-12T00:00:00.000Z',
         'MaxViews': 5,
         'Latitude': 26.0,
@@ -223,6 +226,55 @@ void main() {
     expect(wire.containsKey('Latitude'), isFalse);
     expect(draft.toString(), isNot(contains('recipient')));
   });
+
+  test('sender draft rejects a start at its calculated expiry', () {
+    expect(
+      () => request(
+        restrictions: ContentRestrictions.demoDefaults.copyWith(
+          viewingStartsAt: now.add(const Duration(days: 2)),
+        ),
+      ),
+      throwsA(isA<ContentDraftException>()),
+    );
+  });
+
+  test(
+    'network location uses only the source fields and cannot mix with GPS',
+    () {
+      final bytes = pngFixture();
+      final policy = ContentRestrictions.demoDefaults.copyWith(
+        networkLocation: const NetworkLocation(
+          country: ' US ',
+          city: 'Example City',
+        ),
+      );
+      final data = request(restrictions: policy)
+          .encode(bytes, maxBytes: bytes.length);
+      expect(data['AllowedCountry'], 'US');
+      expect(data['AllowedCity'], 'Example City');
+      expect(
+        data.keys.toSet().intersection({
+          'Latitude',
+          'Longitude',
+          'RadiusMeters',
+        }),
+        isEmpty,
+      );
+      expect(data.containsKey('AllowedRegion'), isFalse);
+      expect(
+        () => request(
+          restrictions: policy.copyWith(
+            locationArea: const SenderLocationDraft(
+              enabled: true,
+              latitude: '26',
+              longitude: '-80',
+            ),
+          ),
+        ),
+        throwsA(draftProblem(ContentDraftProblem.policy)),
+      );
+    },
+  );
 
   for (final value in ['', ' SYNTHETIC-USER ', 'bad\nname', 'x' * 101]) {
     test('rejects an invalid recipient candidate [${value.length}]', () {
@@ -640,6 +692,14 @@ void main() {
         await tester.pumpAndSettle();
         await tap('Prepare PNG');
         final recipient = draftField('share-recipient');
+        await tester.enterText(recipient, ' SYNTHETIC-USER ');
+        await tester.pump();
+        expect(
+          find.text(
+            'Enter a different account’s username (up to 100 characters).',
+          ),
+          findsOneWidget,
+        );
         await tester.enterText(recipient, 'synthetic-recipient');
         await tap('Edit Policy');
         expect(
@@ -751,12 +811,39 @@ void main() {
             );
             policy.onChanged(policy.restrictions.copyWith(viewLimit: 5));
             await tester.pumpAndSettle();
+            final start = find.widgetWithText(
+              TextFormField,
+              'Viewing start (optional)',
+            );
+            await tester.ensureVisible(start);
+            await tester.enterText(start, '2026-11-05T01:00:00Z');
+            final trust = find.widgetWithText(
+              RestrictionTile,
+              'Require a service-approved device',
+            );
+            await tester.ensureVisible(trust);
+            await tester.tap(
+              find.descendant(of: trust, matching: find.byType(Switch)),
+            );
+            FocusManager.instance.primaryFocus?.unfocus();
+            await tester.pumpAndSettle();
             await tester.ensureVisible(find.text('Save'));
             await tester.tap(find.text('Save'));
             await tester.pumpAndSettle();
           }
           final editBeforeDispatch = tester.widget<ElevatedButton>(edit);
-          await tester.ensureVisible(submit);
+          if (submit.evaluate().isEmpty) {
+            await tester.scrollUntilVisible(
+              submit,
+              200,
+              scrollable: find.byType(Scrollable).first,
+            );
+          }
+          await Scrollable.ensureVisible(
+            tester.element(submit),
+            alignment: 0.5,
+          );
+          await tester.pumpAndSettle();
           await tester.tap(find.text('Share Securely'));
           // Exercise a second tap on the old frame before the button rebuilds.
           await tester.tap(submit);
@@ -807,6 +894,8 @@ void main() {
           expect(body['Title'], 'Synthetic title');
           expect(body['Recipient'], 'synthetic-recipient');
           expect(body['MaxViews'], cancel ? 3 : 5);
+          expect(body['StartTime'], cancel ? null : '2026-11-05T01:00:00.000Z');
+          expect(body['RequireTrustedDevice'], !cancel);
           expect(body['ScreenshotRestriction'], isTrue);
           expect(body.containsKey('Body'), isFalse);
           if (cancel) {

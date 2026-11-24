@@ -41,6 +41,32 @@ class LocationZone {
 
 enum LocationZoneResult { accepted, invalid, stale, uncertainty, outside }
 
+/// Country, region and city restrictions evaluated by the API using client IP.
+class NetworkLocation {
+  final String country, region, city;
+  const NetworkLocation({this.country = '', this.region = '', this.city = ''});
+
+  List<String> get parts => [
+    for (final value in [country, region, city])
+      if (value.trim().isNotEmpty) value.trim(),
+  ];
+  bool get enabled => parts.isNotEmpty;
+  bool get valid => !parts.any(RegExp(r'[\x00-\x1f\x7f]').hasMatch);
+
+  @override
+  bool operator ==(Object other) =>
+      other is NetworkLocation &&
+      country.trim() == other.country.trim() &&
+      region.trim() == other.region.trim() &&
+      city.trim() == other.city.trim();
+
+  @override
+  int get hashCode => Object.hash(country.trim(), region.trim(), city.trim());
+
+  @override
+  String toString() => 'NetworkLocation(redacted)';
+}
+
 abstract final class LocationRadiusPolicy {
   static const double maximumUncertaintyMeters = 100;
   static const double earthRadiusMeters = 6371000;

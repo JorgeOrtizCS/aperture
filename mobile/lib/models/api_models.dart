@@ -9,6 +9,7 @@ enum ApiFailure {
   denied,
   notFound,
   invalidRequest,
+  usernameUnavailable,
   timeout,
   network,
   server,
@@ -37,6 +38,7 @@ class ApiException implements Exception {
     ApiFailure.notFound =>
       'This content or session is unavailable to this account.',
     ApiFailure.invalidRequest => 'The server rejected this request.',
+    ApiFailure.usernameUnavailable => 'This username is already in use.',
     ApiFailure.timeout => 'The request timed out. Its server outcome is unknown. Refresh before retrying.',
     ApiFailure.network =>
       'The API could not be reached. Check the connection and retry.',
@@ -131,6 +133,16 @@ class ApiCredentials {
   String toString() => 'ApiCredentials(redacted)';
 }
 
+typedef ApiTimeWindow = ({DateTime? startTime, DateTime? expiresAt});
+typedef ApiListedPolicy = ({
+  ApiTimeWindow window,
+  int? maxViews,
+  bool? screenshotRestriction,
+  bool requiresTrustedDevice,
+  LocationZone? locationZone,
+  NetworkLocation networkLocation,
+});
+
 class ApiContent {
   final int id;
   final String title, owner, status, policyStatus;
@@ -138,8 +150,11 @@ class ApiContent {
   final bool mine;
   final bool requiresPreciseLocation, requiresTrustedDevice;
   final DateTime createdAt;
-  final DateTime? expiresAt;
+  final DateTime? startTime, expiresAt;
+  final int? maxViews;
+  final bool? screenshotRestriction;
   final LocationZone? locationZone;
+  final NetworkLocation networkLocation;
 
   const ApiContent({
     required this.id,
@@ -149,12 +164,25 @@ class ApiContent {
     required this.policyStatus,
     required this.mine,
     required this.createdAt,
+    this.startTime,
     this.expiresAt,
+    this.maxViews,
+    this.screenshotRestriction,
     this.recipient,
     this.requiresPreciseLocation = false,
     this.requiresTrustedDevice = false,
     this.locationZone,
+    this.networkLocation = const NetworkLocation(),
   });
+
+  ApiListedPolicy get listedPolicy => (
+    window: (startTime: startTime, expiresAt: expiresAt),
+    maxViews: maxViews,
+    screenshotRestriction: screenshotRestriction,
+    requiresTrustedDevice: requiresTrustedDevice,
+    locationZone: locationZone,
+    networkLocation: networkLocation,
+  );
 
   factory ApiContent.fromJson(dynamic value) {
     final j = apiObject(value);
@@ -179,6 +207,14 @@ class ApiContent {
             (coordinates[2] as num) <= 0)) {
       throw const ApiException(ApiFailure.malformed);
     }
+    final networkLocation = precise
+        ? const NetworkLocation()
+        : NetworkLocation(
+            country: _optionalLocation(j['AllowedCountry']),
+            region: _optionalLocation(j['AllowedRegion']),
+            city: _optionalLocation(j['AllowedCity']),
+          );
+    if (!networkLocation.valid) throw const ApiException(ApiFailure.malformed);
     // Listing metadata never authorizes rendering. Body/image fields, if sent,
     // are not retained in this model. No guessed policy defaults grant access.
     return ApiContent(
@@ -189,7 +225,13 @@ class ApiContent {
       policyStatus: policy,
       mine: mine,
       createdAt: apiUtc(j['CreatedAt']),
-      expiresAt: _optionalExpiry(j['ExpiresAt']),
+      startTime: _optionalTime(j['StartTime']),
+      expiresAt: _optionalTime(j['ExpiresAt']),
+      maxViews: j['MaxViews'] == null ? null : apiId(j['MaxViews']),
+      screenshotRestriction: j['ScreenshotRestriction'] == null
+          ? null
+          : apiBool(j['ScreenshotRestriction']),
+      networkLocation: networkLocation,
       recipient: recipient as String?,
       requiresPreciseLocation: precise,
       locationZone: precise
@@ -205,8 +247,14 @@ class ApiContent {
     );
   }
 
+  static String _optionalLocation(Object? value) {
+    if (value == null) return '';
+    if (value is! String) throw const ApiException(ApiFailure.malformed);
+    return value.trim();
+  }
+
   // An optional listing timestamp is used only for a status notice.
-  static DateTime? _optionalExpiry(Object? value) {
+  static DateTime? _optionalTime(Object? value) {
     if (value == null) return null;
     try {
       return apiUtc(value);
@@ -225,14 +273,58 @@ class ApiContent {
     owner: owner,
     mine: mine,
     createdAt: createdAt,
+    startTime: startTime,
     expiresAt: expiresAt,
+    maxViews: maxViews,
+    screenshotRestriction: screenshotRestriction,
     recipient: recipient,
     requiresPreciseLocation: requiresPreciseLocation || zone != null,
     locationZone: zone ?? locationZone,
+    networkLocation: zone == null ? networkLocation : const NetworkLocation(),
     requiresTrustedDevice: requiresTrustedDevice,
     status: status ?? this.status,
     policyStatus: policyStatus ?? this.policyStatus,
   );
+}
+
+// Source-defined denial messages are mapped to local copy. Unknown messages,
+// and any payload included with a denial, are never shown or retained.
+enum ApiAccessDenial {
+  notStarted('The sender’s viewing window has not opened yet.'),
+  policyExpired('The sender’s viewing time limit has expired.'),
+  viewLimit('The sender’s viewing limit has been reached.'),
+  deviceApproval('The sender requires a device approved by the service.'),
+  networkLocation(
+    'The service reported that the network location did not meet the viewing policy.',
+  ),
+  cameraPolicy(
+    'The server requires a camera policy this client cannot verify.',
+  ),
+  screenshotPolicy(
+    'The service cannot verify screenshot protection for this client.',
+  ),
+  sessionExpired('The server reported that this viewing session expired.');
+
+  final String description;
+  const ApiAccessDenial(this.description);
+
+  static ApiAccessDenial? fromMessage(Object? value) => switch (value) {
+    'Access has not begun.' => notStarted,
+    'Access has expired.' ||
+    'Viewing time expired. Waiting for the sender to extend it.' =>
+      policyExpired,
+    'Maximum views reached.' => viewLimit,
+    'Approved device required.' => deviceApproval,
+    'Country restriction was not satisfied.' ||
+    'State/region restriction was not satisfied.' ||
+    'City restriction was not satisfied.' => networkLocation,
+    'This content requires camera protection. Use an updated Aperture desktop client.' =>
+      cameraPolicy,
+    'Screenshot restriction cannot be enforced by this desktop client.' =>
+      screenshotPolicy,
+    'Session expired; open the content again.' => sessionExpired,
+    _ => null,
+  };
 }
 
 class ApiAccessDecision {
@@ -240,6 +332,7 @@ class ApiAccessDecision {
   final bool granted, suspended, ended;
   final bool refusedByHttp;
   final bool deviceVerified;
+  final ApiAccessDenial? denial;
   const ApiAccessDecision({
     this.sessionId,
     required this.granted,
@@ -247,6 +340,7 @@ class ApiAccessDecision {
     this.ended = false,
     this.refusedByHttp = false,
     this.deviceVerified = false,
+    this.denial,
   });
 
   factory ApiAccessDecision.fromJson(dynamic value) {
@@ -256,8 +350,16 @@ class ApiAccessDecision {
     // A terminal assertion wins even when the rest of the response is
     // contradictory/malformed. A later grant must not resurrect that session.
     final safeId = id is int && id > 0 ? id : null;
+    final denial = j['AccessGranted'] == false
+        ? ApiAccessDenial.fromMessage(j['Message'])
+        : null;
     if (ended) {
-      return ApiAccessDecision(sessionId: safeId, granted: false, ended: true);
+      return ApiAccessDecision(
+        sessionId: safeId,
+        granted: false,
+        ended: true,
+        denial: denial,
+      );
     }
     final suspended = apiBool(j['Suspended']);
     if (suspended) {
@@ -265,6 +367,7 @@ class ApiAccessDecision {
         sessionId: safeId,
         granted: false,
         suspended: true,
+        denial: denial,
       );
     }
     final granted = apiBool(j['AccessGranted']);
@@ -303,6 +406,7 @@ class ApiAccessDecision {
       suspended: suspended,
       ended: ended,
       deviceVerified: granted && apiBool(j['DeviceVerified']),
+      denial: denial,
     );
   }
 }

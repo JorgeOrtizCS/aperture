@@ -70,11 +70,13 @@ class _ApiFlow {
     bool open = false,
     bool deviceKey = true,
     DeviceLocationSource? location,
+    Map<String, Object?> metadata = const {},
   }) async {
     native.install();
     fake.contents = [
       {
         ...contentJson(),
+        ...metadata,
         if (location != null) ...{
           'Latitude': 26.37,
           'Longitude': -80.1,
@@ -99,9 +101,15 @@ class _ApiFlow {
       ),
     );
     await tester.pumpAndSettle();
-    controller = tester
-        .widget<BiometricStatusPanel>(find.byType(BiometricStatusPanel))
-        .controller;
+    final panel = find.byType(BiometricStatusPanel);
+    if (panel.evaluate().isEmpty) {
+      await tester.scrollUntilVisible(
+        panel,
+        140,
+        scrollable: find.byType(Scrollable).first,
+      );
+    }
+    controller = tester.widget<BiometricStatusPanel>(panel).controller;
     expect(_protected, findsNothing);
     expect(find.text('Open Demo Preview'), findsNothing);
     if (verify) {
@@ -247,6 +255,132 @@ void main() {
     await flushViewing(tester);
     expect(f.controller.sessionEnded, isTrue);
     expect(_protected, findsNothing);
+  });
+
+  apiWidgets('source policy refusal explains the unopened viewing window', (
+    tester,
+  ) async {
+    final f = _ApiFlow(tester);
+    f.fake.routes['/api/content/7/sessions'] = (_) => jsonReply({
+      ...accessJson(granted: false, id: 0),
+      'Message': 'Access has not begun.',
+      'FileDataBase64': 'synthetic refusal payload',
+    }, 403);
+    await f.mount();
+    expect(f.controller.sessionEnded, isTrue);
+    expect(f.controller.biometrics.approved, isFalse);
+    expect(
+      find.textContaining('viewing window has not opened'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('synthetic refusal payload'), findsNothing);
+    expect(_protected, findsNothing);
+  });
+
+  apiWidgets(
+    'recipient can review listed policy and gets a typed network location refusal',
+    (tester) async {
+      final f = _ApiFlow(tester);
+      await f.mount(
+        verify: false,
+        metadata: {
+          'StartTime': '2026-11-05T12:00:00Z',
+          'ExpiresAt': '2026-11-06T12:00:00Z',
+          'MaxViews': 3,
+          'RequireTrustedDevice': true,
+          'ScreenshotRestriction': true,
+          'AllowedCountry': 'US',
+          'AllowedRegion': 'Example Region',
+        },
+      );
+      await f.tap('Review listed viewing policy');
+      expect(find.textContaining('Listed viewing start'), findsOneWidget);
+      expect(find.text('Listed maximum views: 3'), findsOneWidget);
+      expect(
+        find.textContaining('Service-approved device required'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Listed screenshot restriction: Required'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Listed network location: US, Example Region'),
+        findsOneWidget,
+      );
+      expect(
+        f.fake.calls.where((call) => call.uri.path.endsWith('/sessions')),
+        isEmpty,
+      );
+      f.fake.routes['/api/content/7/sessions'] = (_) => jsonReply({
+        ...accessJson(granted: false, id: 0),
+        'Message': 'State/region restriction was not satisfied.',
+      }, 403);
+      unawaited(f.controller.verifyIdentity());
+      await flushViewing(tester);
+      expect(f.controller.sessionEnded, isTrue);
+      expect(f.conditions.message, contains('network location did not meet'));
+      expect(
+        f.fake.calls
+            .singleWhere((call) => call.uri.path.endsWith('/sessions'))
+            .headers
+            .containsKey('X-Client-Latitude'),
+        isFalse,
+      );
+      expect(_protected, findsNothing);
+    },
+  );
+
+  apiWidgets(
+    'a listed policy change invalidates a pending open and ends its late session',
+    (tester) async {
+      final f = _ApiFlow(tester);
+      await f.mount(verify: false, metadata: {'MaxViews': 5});
+      final pending = Completer<ApiReply>();
+      f.fake.routes['/api/content/7/sessions'] = (_) => pending.future;
+      unawaited(f.controller.verifyIdentity());
+      await flushViewing(tester);
+      f.fake.contents = [
+        {...contentJson(), 'MaxViews': 2},
+      ];
+      await f.account.refresh();
+      await flushViewing(tester);
+      pending.complete(jsonReply(accessJson()));
+      await flushViewing(tester);
+      expect(f.controller.state, isNot(ViewingState.allowed));
+      expect(f.conditions.sessionId, isNull);
+      expect(
+        f.fake.calls.where(
+          (call) => call.uri.path == '/api/content/sessions/41/end',
+        ),
+        hasLength(1),
+      );
+      expect(_protected, findsNothing);
+      await f.tap('Review listed viewing policy');
+      expect(find.text('Listed maximum views: 2'), findsOneWidget);
+    },
+  );
+
+  apiWidgets('source 403 expiry ends the session and requires reopening', (
+    tester,
+  ) async {
+    final f = _ApiFlow(tester);
+    await f.mount(open: true);
+    f.fake.routes['/api/content/sessions/41/check'] = (_) => jsonReply({
+      ...accessJson(granted: false, ended: true, id: 0),
+      'Message': 'Session expired; open the content again.',
+    }, 403);
+    await tester.pump(const Duration(seconds: 3));
+    await flushViewing(tester);
+    expect(f.controller.sessionEnded, isTrue);
+    expect(
+      find.textContaining(
+        'The server reported that this viewing session expired.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Recheck Conditions'), findsNothing);
+    expect(find.byType(RecipientPngRenderer), findsNothing);
   });
 
   apiWidgets('server session missing gives recovery without guessing expiry', (

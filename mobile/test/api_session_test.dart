@@ -22,6 +22,81 @@ void main() {
   Future<void> login() =>
       account.login('synthetic-user', 'not-a-real-password');
 
+  test('account registration uses an anonymous HTTPS request and leaves login separate', () async {
+    fake.routes['/api/register'] = (_) =>
+        jsonReply({'success': true, 'message': 'User created successfully.'});
+    await account.registerAccount(
+      firstName: ' Synthetic ',
+      lastName: ' Test ',
+      username: ' new-user ',
+      password: '  test-password  ',
+    );
+    final call = fake.calls.single;
+    expect(call.method, 'POST');
+    expect(call.uri.path, '/api/register');
+    expect(call.headers.containsKey('Authorization'), isFalse);
+    expect(call.json, {
+      'FirstName': 'Synthetic',
+      'LastName': 'Test',
+      'Username': 'new-user',
+      'Password': '  test-password  ',
+    });
+    expect(account.authenticated, isFalse);
+    expect(account.registeringAccount, isFalse);
+  });
+
+  test(
+    'registration blocks duplicate requests and handles a source conflict',
+    () async {
+      final reply = Completer<ApiReply>();
+      fake.routes['/api/register'] = (_) => reply.future;
+      Future<void> submit() => account.registerAccount(
+        firstName: 'Synthetic',
+        lastName: 'Test',
+        username: 'synthetic-user',
+        password: 'test-password',
+      );
+      final original = expectLater(
+        submit(),
+        throwsA(apiError(ApiFailure.usernameUnavailable)),
+      );
+      await expectLater(submit(), throwsA(apiError(ApiFailure.pending)));
+      reply.complete(
+        jsonReply({
+          'success': false,
+          'message': 'Username already exists.',
+        }, 409),
+      );
+      await original;
+      expect(fake.calls, hasLength(1));
+      expect(account.authenticated, isFalse);
+      expect(account.registeringAccount, isFalse);
+    },
+  );
+
+  test('account registration does not send credentials to a fixture or insecure origin', () async {
+    final fixture = ApiService.fixture(transport: fake);
+    for (final service in [
+      fixture,
+      ApiService(
+        baseUri: Uri.parse('http://127.0.0.1/'),
+        transport: fake,
+        schoolDemo: true,
+      ),
+    ]) {
+      await expectLater(
+        service.registerAccount(
+          firstName: 'Synthetic',
+          lastName: 'Test',
+          username: 'new-user',
+          password: 'test-password',
+        ),
+        throwsA(apiError(ApiFailure.configuration)),
+      );
+    }
+    expect(fake.calls, isEmpty);
+  });
+
   test(
     'login verifies current-user identity and endpoint-specific casing',
     () async {
@@ -527,6 +602,146 @@ void main() {
         fake.calls.where((call) => call.uri.path.endsWith('/7/revoke')),
         hasLength(1),
       );
+    },
+  );
+
+  test(
+    'time-window GET and POST match the source field casing and nulls',
+    () async {
+      await login();
+      fake.contents = [contentJson(mine: true)];
+      await account.refresh();
+      const path = '/api/situational/content/7/time';
+      final expiry = DateTime.utc(2026, 11, 7, 12);
+      fake.routes[path] = (call) {
+        expect(call.headers['Authorization'], 'Bearer ${fake.token}');
+        if (call.method == 'GET') {
+          return jsonReply({
+            'passed': true,
+            'reason': null,
+            'startTime': null,
+            'expiresAt': '2026-11-07T07:00:00-05:00',
+          });
+        }
+        expect(call.method, 'POST');
+        expect(call.json, {'StartTime': null, 'ExpiresAt': null});
+        return jsonReply({'success': true});
+      };
+      expect(await account.timeWindow(7, isCurrent: () => true), (
+        startTime: null,
+        expiresAt: expiry,
+      ));
+      await account.setTimeWindow(7, (
+        startTime: null,
+        expiresAt: null,
+      ), isCurrent: () => true);
+      expect(account.ownerControl(7), (
+        OwnerControlAction.editViewingTime,
+        OwnerControlPhase.confirmed,
+      ));
+      fake.routes[path] = (_) => jsonReply({'passed': true, 'startTime': null});
+      await expectLater(
+        account.timeWindow(7, isCurrent: () => true),
+        throwsA(apiError(ApiFailure.malformed)),
+      );
+    },
+  );
+
+  test(
+    'an uncertain time edit shares the owner hold and survives read-back',
+    () async {
+      await login();
+      fake.contents = [contentJson(mine: true), contentJson(id: 8, mine: true)];
+      await account.refresh();
+      const path = '/api/situational/content/7/time';
+      const window = (startTime: null, expiresAt: null);
+      final reply = Completer<ApiReply>();
+      fake.routes[path] = (call) => call.method == 'POST'
+          ? reply.future
+          : jsonReply({
+              'passed': true,
+              'reason': null,
+              'startTime': null,
+              'expiresAt': null,
+            });
+      Future<void> edit() =>
+          account.setTimeWindow(7, window, isCurrent: () => true);
+      final outcome = expectLater(
+        edit(),
+        throwsA(apiError(ApiFailure.malformed)),
+      );
+      expect(account.pending(7), isTrue);
+      await expectLater(edit(), throwsA(apiError(ApiFailure.pending)));
+      await expectLater(
+        account.revoke(7),
+        throwsA(apiError(ApiFailure.pending)),
+      );
+      await expectLater(
+        account.setPolicy(7, 'Paused'),
+        throwsA(apiError(ApiFailure.pending)),
+      );
+      await expectLater(
+        account.setLocation(
+          7,
+          const LocationZone(26, -80, 100),
+          isCurrent: () => true,
+        ),
+        throwsA(apiError(ApiFailure.pending)),
+      );
+      await account.setPolicy(8, 'Paused');
+      reply.complete(jsonReply({'success': 'true'}));
+      await outcome;
+      expect(await account.timeWindow(7, isCurrent: () => true), window);
+      await account.refresh();
+      expect(account.ownerControl(7), (
+        OwnerControlAction.editViewingTime,
+        OwnerControlPhase.unconfirmed,
+      ));
+      await expectLater(
+        account.revoke(7),
+        throwsA(apiError(ApiFailure.ownerControlUnconfirmed)),
+      );
+      expect(
+        fake.calls.where(
+          (call) => call.uri.path == path && call.method == 'POST',
+        ),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'a late time acknowledgement cannot update the replacement account',
+    () async {
+      await login();
+      fake.contents = [contentJson(mine: true)];
+      await account.refresh();
+      const path = '/api/situational/content/7/time';
+      final pending = Completer<ApiReply>();
+      fake.routes[path] = (_) => pending.future;
+      final old = expectLater(
+        account.setTimeWindow(7, (
+          startTime: null,
+          expiresAt: null,
+        ), isCurrent: () => true),
+        throwsA(apiError(ApiFailure.stale)),
+      );
+      await account.logout();
+      fake.userId = 2;
+      await login();
+      await account.refresh();
+      expect(account.ownerControl(7), isNull);
+      pending.complete(jsonReply({'success': true}));
+      await old;
+      expect(account.ownerControl(7), isNull);
+      await account.logout();
+      fake.userId = 1;
+      await login();
+      await account.refresh();
+      expect(account.ownerControl(7), (
+        OwnerControlAction.editViewingTime,
+        OwnerControlPhase.unconfirmed,
+      ));
     },
   );
 

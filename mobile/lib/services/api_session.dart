@@ -9,7 +9,13 @@ import 'access_status.dart';
 import 'api_service.dart';
 import 'device_location.dart';
 
-enum OwnerControlAction { pause, resume, revoke, editViewingArea }
+enum OwnerControlAction {
+  pause,
+  resume,
+  revoke,
+  editViewingArea,
+  editViewingTime,
+}
 
 enum OwnerControlPhase {
   pending,
@@ -34,6 +40,7 @@ class ApiSession extends ChangeNotifier {
   bool _disposed = false;
   int _epoch = 0, _identityVersion = 0, _listEpoch = 0;
   bool signingIn = false, loading = false;
+  bool _registeringAccount = false;
   ApiException? error;
   String? logoutWarning;
   bool _hasContentListing = false;
@@ -68,6 +75,7 @@ class ApiSession extends ChangeNotifier {
   int get identityVersion => _identityVersion;
   List<ApiContent> get items => _items;
   bool get hasContentListing => _hasContentListing;
+  bool get registeringAccount => _registeringAccount;
   ApiException? get contentListingError => _contentListingError;
   (OwnerControlAction, OwnerControlPhase)? ownerControl(int id) =>
       _ownerControls[(user?.id, id)];
@@ -170,6 +178,33 @@ class ApiSession extends ChangeNotifier {
 
   Future<void> login(String username, String password) =>
       _track(_login(username, password), _logins);
+
+  Future<void> registerAccount({
+    required String firstName,
+    required String lastName,
+    required String username,
+    required String password,
+  }) async {
+    if (_disposed || authenticated || signingIn) {
+      throw const ApiException(ApiFailure.stale);
+    }
+    if (_registeringAccount) throw const ApiException(ApiFailure.pending);
+    final ticket = _epoch;
+    _registeringAccount = true;
+    _emit();
+    try {
+      await api.registerAccount(
+        firstName: firstName,
+        lastName: lastName,
+        username: username,
+        password: password,
+      );
+      if (!_current(ticket)) throw const ApiException(ApiFailure.stale);
+    } finally {
+      _registeringAccount = false;
+      _emit();
+    }
+  }
 
   Future<void> _login(String username, String password) async {
     if (_disposed) throw const ApiException(ApiFailure.stale);
@@ -409,6 +444,7 @@ class ApiSession extends ChangeNotifier {
     String? policy,
     bool revoke = false,
     LocationZone? location,
+    ApiTimeWindow? window,
     bool Function()? isCurrent,
   }) async {
     if (isCurrent?.call() == false) throw const ApiException(ApiFailure.stale);
@@ -423,13 +459,15 @@ class ApiSession extends ChangeNotifier {
       throw const ApiException(ApiFailure.denied);
     }
     if (pending(id)) throw const ApiException(ApiFailure.pending);
-    final action = switch ((location, revoke, policy)) {
-      (LocationZone(), _, _) => OwnerControlAction.editViewingArea,
-      (_, true, _) => OwnerControlAction.revoke,
-      (_, false, 'Paused') => OwnerControlAction.pause,
-      (_, false, 'Active') => OwnerControlAction.resume,
+    final action = switch ((location != null, window != null, revoke, policy)) {
+      (true, _, _, _) => OwnerControlAction.editViewingArea,
+      (_, true, _, _) => OwnerControlAction.editViewingTime,
+      (_, _, true, _) => OwnerControlAction.revoke,
+      (_, _, false, 'Paused') => OwnerControlAction.pause,
+      (_, _, false, 'Active') => OwnerControlAction.resume,
       _ => throw const ApiException(ApiFailure.invalidRequest),
     };
+    final editorAction = location != null || window != null;
     final key = (owner.id, id);
     final ticket = _epoch;
     ++_listEpoch; // Older list snapshots cannot undo a confirmed write.
@@ -446,6 +484,14 @@ class ApiSession extends ChangeNotifier {
             token,
             id,
             location,
+            onDispatch: () => attempted = true,
+          );
+        }
+        if (window != null) {
+          return api.setTimeWindow(
+            token,
+            id,
+            window,
             onDispatch: () => attempted = true,
           );
         }
@@ -471,16 +517,14 @@ class ApiSession extends ChangeNotifier {
         ),
       );
     } on ApiException catch (e) {
-      if (action == OwnerControlAction.editViewingArea &&
-          _current(ticket) &&
-          isCurrent?.call() != false) {
+      if (editorAction && _current(ticket) && isCurrent?.call() != false) {
         error = e;
       }
       if (!attempted || _ownerControlRejected(action, e.kind)) {
         if (_current(ticket)) {
           _ownerControls[key] = (
             action,
-            !attempted && action == OwnerControlAction.editViewingArea
+            !attempted && editorAction
                 ? OwnerControlPhase.notDispatched
                 : OwnerControlPhase.rejected,
           );
@@ -506,11 +550,12 @@ class ApiSession extends ChangeNotifier {
     // Authentication rejects before the handler. Owner-scoped mutations return
     // NotFound without a write, including the area update with no owner match.
     ApiFailure.credentials || ApiFailure.notFound => true,
-    // Status and location validation precede the write. Revoke has no
+    // Status, location and time validation precede the write. Revoke has no
     // request body and its contract does not define a 400 rejection.
     ApiFailure.invalidRequest => action != OwnerControlAction.revoke,
     ApiFailure.configuration || ApiFailure.httpDemoAnonymousOnly =>
-      action != OwnerControlAction.editViewingArea,
+      action != OwnerControlAction.editViewingArea &&
+          action != OwnerControlAction.editViewingTime,
     _ => false,
   };
 
@@ -521,6 +566,26 @@ class ApiSession extends ChangeNotifier {
     LocationZone zone, {
     required bool Function() isCurrent,
   }) => _change(id, location: zone, isCurrent: isCurrent);
+
+  Future<ApiTimeWindow> timeWindow(
+    int id, {
+    required bool Function() isCurrent,
+  }) => _authorized((token) => api.timeWindow(token, id), isCurrent: isCurrent);
+
+  Future<void> setTimeWindow(
+    int id,
+    ApiTimeWindow window, {
+    required bool Function() isCurrent,
+  }) async {
+    final expiry = window.expiresAt;
+    final start = window.startTime;
+    if (expiry != null &&
+        (!expiry.isAfter(now().toUtc()) ||
+            (start != null && !expiry.isAfter(start)))) {
+      throw const ApiException(ApiFailure.invalidRequest);
+    }
+    await _change(id, window: window, isCurrent: isCurrent);
+  }
 
   Future<bool> registerDevice(String name) => _authorized((token) {
     final key = deviceKey;

@@ -238,8 +238,9 @@ class NativeApiTransport implements CancellableApiTransport {
 }
 
 class ApiService {
-  static const contractRevision = 'a634ed1d8c43b5a79e472c9026a803416b402844';
+  static const contractRevision = '9c7996fcf610948d18cc24a6b986458e050a12d9';
   static const cameraPolicyVersion = 0;
+  static const _registrationPath = 'api/register';
   final Uri? baseUri;
   final ApiTransport transport;
   final Duration timeout;
@@ -340,6 +341,7 @@ class ApiService {
       !uri.hasFragment;
 
   bool get configured => baseUri != null || isFixture;
+  bool get canRegisterAccount => !isFixture && baseUri?.scheme == 'https';
   bool get usesSchoolDemoHttp =>
       !usesClassroomHttp && baseUri?.scheme == 'http';
   bool get anonymousOnly => usesSchoolDemoHttp && !_isLoopback(baseUri!);
@@ -416,14 +418,34 @@ class ApiService {
       throw const ApiException(ApiFailure.credentials);
     }
     if (viewing && {403, 404}.contains(reply.status)) {
-      return const ApiAccessDecision(
+      ApiAccessDenial? denial;
+      if (reply.status == 403 &&
+          reply.body.length <= NativeApiTransport.maxBytes) {
+        try {
+          final value = jsonDecode(reply.body);
+          if (value is Map && value['AccessGranted'] == false) {
+            final reason = ApiAccessDenial.fromMessage(value['Message']);
+            if (reason != ApiAccessDenial.sessionExpired ||
+                (path.endsWith('/check') && value['SessionEnded'] == true)) {
+              denial = reason;
+            }
+          }
+        } on FormatException {
+          // A non-contract error body contributes no details to the denial.
+        }
+      }
+      return ApiAccessDecision(
         granted: false,
         ended: true,
         refusedByHttp: true,
+        denial: denial,
       );
     }
     if (reply.status == 403) throw const ApiException(ApiFailure.denied);
     if (reply.status == 404) throw const ApiException(ApiFailure.notFound);
+    if (path == _registrationPath && reply.status == 409) {
+      throw const ApiException(ApiFailure.usernameUnavailable);
+    }
     if (reply.status == 400) {
       throw const ApiException(ApiFailure.invalidRequest);
     }
@@ -490,6 +512,42 @@ class ApiService {
       ),
     );
     return apiId(reply['id']);
+  }
+
+  Future<void> registerAccount({
+    required String firstName,
+    required String lastName,
+    required String username,
+    required String password,
+  }) async {
+    if (!canRegisterAccount) throw const ApiException(ApiFailure.configuration);
+    firstName = firstName.trim();
+    lastName = lastName.trim();
+    username = username.trim();
+    if ([
+          firstName,
+          lastName,
+          username,
+        ].any((value) => value.isEmpty || value.length > 100) ||
+        password.trim().isEmpty ||
+        password.length < 8) {
+      throw const ApiException(ApiFailure.invalidRequest);
+    }
+    final reply = apiObject(
+      await _request(
+        'POST',
+        _registrationPath,
+        body: {
+          'FirstName': firstName,
+          'LastName': lastName,
+          'Username': username,
+          'Password': password,
+        },
+      ),
+    );
+    if (reply['success'] != true) {
+      throw const ApiException(ApiFailure.malformed);
+    }
   }
 
   Future<ApiCredentials> login(String username, String password) async {
@@ -591,6 +649,45 @@ class ApiService {
           'Latitude': zone.latitude,
           'Longitude': zone.longitude,
           'RadiusMeters': zone.radiusMeters,
+        },
+        onDispatch: onDispatch,
+      ),
+    );
+    if (reply['success'] != true) {
+      throw const ApiException(ApiFailure.malformed);
+    }
+  }
+
+  Future<ApiTimeWindow> timeWindow(String token, int id) async {
+    apiId(id);
+    final reply = apiObject(
+      await _request('GET', 'api/situational/content/$id/time', token: token),
+    );
+    apiBool(reply['passed']);
+    if (!reply.containsKey('startTime') || !reply.containsKey('expiresAt')) {
+      throw const ApiException(ApiFailure.malformed);
+    }
+    return (
+      startTime: reply['startTime'] == null ? null : apiUtc(reply['startTime']),
+      expiresAt: reply['expiresAt'] == null ? null : apiUtc(reply['expiresAt']),
+    );
+  }
+
+  Future<void> setTimeWindow(
+    String token,
+    int id,
+    ApiTimeWindow window, {
+    void Function()? onDispatch,
+  }) async {
+    apiId(id);
+    final reply = apiObject(
+      await _request(
+        'POST',
+        'api/situational/content/$id/time',
+        token: token,
+        body: {
+          'StartTime': window.startTime?.toUtc().toIso8601String(),
+          'ExpiresAt': window.expiresAt?.toUtc().toIso8601String(),
         },
         onDispatch: onDispatch,
       ),

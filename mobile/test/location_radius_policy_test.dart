@@ -524,8 +524,14 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        final biometrics = find.byType(BiometricStatusPanel);
+        await tester.scrollUntilVisible(
+          biometrics,
+          140,
+          scrollable: find.byType(Scrollable).first,
+        );
         final controller = tester
-            .widget<BiometricStatusPanel>(find.byType(BiometricStatusPanel))
+            .widget<BiometricStatusPanel>(biometrics)
             .controller;
         unawaited(controller.verifyIdentity());
         await flushViewing(tester);

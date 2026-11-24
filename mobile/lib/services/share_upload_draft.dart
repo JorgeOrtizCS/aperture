@@ -28,9 +28,12 @@ ContentCreateRequest buildShareUploadDraft({
     recipient: recipient,
     sender: sender,
     now: utcNow,
+    startTime: restrictions.viewingStartsAt,
     expiresAt: utcNow.add(duration),
     maxViews: restrictions.viewLimit,
+    requireTrustedDevice: restrictions.requireTrustedDevice,
     screenshotRestriction: restrictions.restrictScreenshots,
     location: restrictions.locationArea.zone,
+    networkLocation: restrictions.networkLocation,
   );
 }

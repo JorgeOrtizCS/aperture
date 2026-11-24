@@ -602,6 +602,28 @@ class _ShareContentScreenState extends State<ShareContentScreen>
               'Recipient accounts are not verified in this draft.',
               style: TextStyle(color: AppTheme.textSecondary),
             ),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _recipientController,
+              builder: (context, value, _) {
+                if (value.text.isEmpty ||
+                    ContentCreateRequest.validRecipient(
+                      value.text,
+                      sender: account?.user?.username ?? '',
+                    )) {
+                  return const SizedBox.shrink();
+                }
+                return Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    const ContentDraftException(ContentDraftProblem.recipient)
+                        .message,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                );
+              },
+            ),
             const SizedBox(height: 28),
             const SectionHeader(
               title: 'Saved draft policy',
