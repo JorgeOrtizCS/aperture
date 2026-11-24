@@ -8,6 +8,7 @@ class ApertureTextField extends StatelessWidget {
   final String hintText;
   final IconData icon;
   final bool obscureText;
+  final bool readOnly;
   final TextInputAction? textInputAction;
   final Widget? suffixIcon;
   final ValueChanged<String>? onSubmitted;
@@ -19,6 +20,7 @@ class ApertureTextField extends StatelessWidget {
     required this.hintText,
     required this.icon,
     this.obscureText = false,
+    this.readOnly = false,
     this.textInputAction,
     this.suffixIcon,
     this.onSubmitted,
@@ -41,6 +43,7 @@ class ApertureTextField extends StatelessWidget {
         TextField(
           controller: controller,
           obscureText: obscureText,
+          readOnly: readOnly,
           textInputAction: textInputAction,
           onSubmitted: onSubmitted,
           decoration: InputDecoration(

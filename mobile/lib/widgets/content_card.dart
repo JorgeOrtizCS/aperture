@@ -31,6 +31,7 @@ class ContentCard extends StatelessWidget {
           border: Border.all(color: AppTheme.border),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
               width: 48,
@@ -62,16 +63,16 @@ class ContentCard extends StatelessWidget {
                       color: AppTheme.textSecondary,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    status,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _statusColor(status),
+                    ),
+                  ),
                 ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              status,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: _statusColor(status),
               ),
             ),
           ],

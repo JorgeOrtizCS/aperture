@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/aperture_button.dart';
+import '../widgets/api_scope.dart';
 import 'login_screen.dart';
 
 class WelcomeScreen extends StatelessWidget {
@@ -9,14 +10,24 @@ class WelcomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final logoutWarning = ApiScope.maybeOf(context)?.logoutWarning;
     return Scaffold(
       backgroundColor: AppTheme.background,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
           child: Column(
             children: [
-              const Spacer(),
+              if (logoutWarning != null)
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    logoutWarning,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppTheme.warning),
+                  ),
+                ),
+              const SizedBox(height: 24),
 
               // Aperture Logo
               Container(
@@ -66,7 +77,7 @@ class WelcomeScreen extends StatelessWidget {
                 ),
               ),
 
-              const Spacer(),
+              const SizedBox(height: 24),
 
               ApertureButton(
                 label: 'Get Started',

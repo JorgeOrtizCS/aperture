@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Aperture uses your location while viewing content when the sender requires an approved viewing area.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Aperture requires Face ID to verify your identity for each secure viewing session. Sender authorization and viewing conditions are checked separately.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Aperture uses the front camera on device to detect phones while protected content is open. Frames are not saved.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

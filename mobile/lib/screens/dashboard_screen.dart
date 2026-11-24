@@ -9,6 +9,9 @@ import 'content_status_screen.dart';
 import 'notifications_screen.dart';
 import 'secure_viewer_screen.dart';
 import 'share_content_screen.dart';
+import 'security_settings_screen.dart';
+import '../widgets/api_scope.dart';
+import 'api_content_screens.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -19,6 +22,8 @@ class DashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final account = ApiScope.maybeOf(context);
+    if (account != null) return ApiDashboardScreen(account: account);
     return Scaffold(
       backgroundColor: AppTheme.background,
       body: SafeArea(
@@ -28,12 +33,22 @@ class DashboardScreen extends StatelessWidget {
             AppHeader(
               title: 'Aperture',
               subtitle: 'Secure Content Dashboard',
+              actionTooltip: 'Notifications',
               actionIcon: Icons.notifications_outlined,
               onActionPressed: () {
                 _openScreen(context, const NotificationsScreen());
               },
             ),
-            const SizedBox(height: 32),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () =>
+                    _openScreen(context, const SecuritySettingsScreen()),
+                icon: const Icon(Icons.settings_outlined),
+                label: const Text('Security Settings'),
+              ),
+            ),
+            const SizedBox(height: 16),
             const Text(
               'Welcome back!',
               style: TextStyle(
@@ -44,7 +59,7 @@ class DashboardScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Manage the content you share and the content others have securely shared with you.',
+              'Manage the content you share and the content others have securely shared with you. Cards and status labels are sample data; they do not verify access.',
               style: TextStyle(
                 fontSize: 15,
                 height: 1.5,

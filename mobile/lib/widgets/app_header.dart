@@ -7,6 +7,7 @@ class AppHeader extends StatelessWidget {
   final String subtitle;
   final IconData? actionIcon;
   final VoidCallback? onActionPressed;
+  final String? actionTooltip;
 
   const AppHeader({
     super.key,
@@ -14,6 +15,7 @@ class AppHeader extends StatelessWidget {
     required this.subtitle,
     this.actionIcon,
     this.onActionPressed,
+    this.actionTooltip,
   });
 
   @override
@@ -48,6 +50,7 @@ class AppHeader extends StatelessWidget {
         if (actionIcon != null)
           IconButton.filled(
             onPressed: onActionPressed,
+            tooltip: actionTooltip,
             style: IconButton.styleFrom(
               backgroundColor: AppTheme.primary,
               foregroundColor: Colors.white,

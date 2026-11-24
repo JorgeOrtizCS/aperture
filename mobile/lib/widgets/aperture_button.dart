@@ -22,6 +22,8 @@ class ApertureButton extends StatelessWidget {
     final foregroundColor = isSecondary ? AppTheme.primary : Colors.white;
 
     final style = ElevatedButton.styleFrom(
+      minimumSize: const Size(0, 56),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       backgroundColor: backgroundColor,
       foregroundColor: foregroundColor,
       elevation: 0,
@@ -31,12 +33,12 @@ class ApertureButton extends StatelessWidget {
 
     final child = Text(
       label,
+      textAlign: TextAlign.center,
       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
     );
 
     return SizedBox(
       width: double.infinity,
-      height: 56,
       child: icon == null
           ? ElevatedButton(onPressed: onPressed, style: style, child: child)
           : ElevatedButton.icon(
