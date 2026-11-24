@@ -29,35 +29,50 @@ class ContentRestrictions {
   final bool allowDownload;
   final bool allowResharing;
   final bool restrictScreenshots;
+  final bool requireTrustedDevice;
   final AccessDuration accessDuration;
   final int? viewLimit;
+  final DateTime? viewingStartsAt;
   final SenderLocationDraft locationArea;
+  final NetworkLocation networkLocation;
 
   const ContentRestrictions({
     required this.allowDownload,
     required this.allowResharing,
     required this.restrictScreenshots,
+    this.requireTrustedDevice = false,
     required this.accessDuration,
     this.viewLimit,
+    this.viewingStartsAt,
     this.locationArea = const SenderLocationDraft(),
+    this.networkLocation = const NetworkLocation(),
   });
 
   ContentRestrictions copyWith({
     bool? allowDownload,
     bool? allowResharing,
     bool? restrictScreenshots,
+    bool? requireTrustedDevice,
     AccessDuration? accessDuration,
     int? viewLimit,
     bool clearViewLimit = false,
+    DateTime? viewingStartsAt,
+    bool clearViewingStart = false,
     SenderLocationDraft? locationArea,
+    NetworkLocation? networkLocation,
   }) {
     return ContentRestrictions(
       allowDownload: allowDownload ?? this.allowDownload,
       allowResharing: allowResharing ?? this.allowResharing,
       restrictScreenshots: restrictScreenshots ?? this.restrictScreenshots,
+      requireTrustedDevice: requireTrustedDevice ?? this.requireTrustedDevice,
       accessDuration: accessDuration ?? this.accessDuration,
       viewLimit: clearViewLimit ? null : viewLimit ?? this.viewLimit,
+      viewingStartsAt: clearViewingStart
+          ? null
+          : viewingStartsAt ?? this.viewingStartsAt,
       locationArea: locationArea ?? this.locationArea,
+      networkLocation: networkLocation ?? this.networkLocation,
     );
   }
 }
@@ -80,8 +95,12 @@ class ContentRestrictionsSection extends StatelessWidget {
       children: [
         LocationAreaEditor(
           draft: restrictions.locationArea,
-          onChanged: (value) =>
-              onChanged(restrictions.copyWith(locationArea: value)),
+          onChanged: (value) => onChanged(
+            restrictions.copyWith(
+              locationArea: value,
+              networkLocation: value.enabled ? const NetworkLocation() : null,
+            ),
+          ),
         ),
         const SizedBox(height: 12),
         if (senderDraft)
@@ -130,6 +149,17 @@ class ContentRestrictionsSection extends StatelessWidget {
             onChanged(restrictions.copyWith(restrictScreenshots: value));
           },
         ),
+        if (senderDraft) ...[
+          const SizedBox(height: 12),
+          RestrictionTile(
+            title: 'Require a service-approved device',
+            subtitle: 'Recipients must use a device approved by the service.',
+            icon: Icons.devices_outlined,
+            enabled: restrictions.requireTrustedDevice,
+            onChanged: (value) =>
+                onChanged(restrictions.copyWith(requireTrustedDevice: value)),
+          ),
+        ],
         const SizedBox(height: 12),
         _PickerCard(
           icon: Icons.schedule_outlined,

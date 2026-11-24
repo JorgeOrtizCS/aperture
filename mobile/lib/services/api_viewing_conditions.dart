@@ -57,6 +57,7 @@ class ApiViewingConditions extends ChangeNotifier
   bool _ended = false, _disposed = false;
   bool _requiresLocation = false, _requiresDevice = false;
   LocationZone? _locationZone;
+  Set<ApiListedPolicy>? _listedPolicies;
   bool locationPermissionPending = false;
   LocationPermissionState? locationPermission;
   int? get sessionId => _sessionId;
@@ -223,9 +224,14 @@ class ApiViewingConditions extends ChangeNotifier
         .map((item) => item.locationZone)
         .toSet();
     final zone = zones.length == 1 ? zones.single : null;
+    final listedPolicies = items.map((item) => item.listedPolicy).toSet();
+    final policyChanged =
+        _listedPolicies != null && !setEquals(_listedPolicies, listedPolicies);
+    _listedPolicies = listedPolicies;
     if ((locationRequired && !_requiresLocation) ||
         (deviceRequired && !_requiresDevice) ||
-        zone != _locationZone) {
+        zone != _locationZone ||
+        policyChanged) {
       // Requirements can expand; a later list cannot silently remove a gate.
       _requiresLocation |= locationRequired;
       _requiresDevice |= deviceRequired;
@@ -235,6 +241,7 @@ class ApiViewingConditions extends ChangeNotifier
       _timer?.cancel();
       _locationExpiry?.cancel();
       _cancelLocation();
+      _recordServerStatus(null);
       message = 'Server authorization must be checked against the current requirements.';
       _publish(_result(ViewingConditionResult.unknown));
     }
@@ -457,7 +464,9 @@ class ApiViewingConditions extends ChangeNotifier
       } else {
         terminal = true;
         result = _result(ViewingConditionResult.denied);
-        if (decision.ended && !decision.refusedByHttp) {
+        if (decision.ended &&
+            (!decision.refusedByHttp ||
+                decision.denial == ApiAccessDenial.sessionExpired)) {
           message = 'The server ended this viewing session. Return to Shared With Me and reopen the item if access is still available.';
           _recordServerStatus(AccessStatusKind.sessionEnded);
         } else {
@@ -472,6 +481,10 @@ class ApiViewingConditions extends ChangeNotifier
                 : AccessStatusKind.accessDenied,
           );
         }
+      }
+      final denial = decision.denial;
+      if (!decision.granted && denial != null) {
+        message = '${denial.description} $message';
       }
     } on ApiException catch (e) {
       if (_ended || _disposed || generation != _generation) {

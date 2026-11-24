@@ -90,6 +90,65 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  apiWidgets(
+    'dashboard device registration can recheck approval without opening a view',
+    (tester) async {
+      var trusted = false;
+      fake.routes['/api/devices'] = (_) => jsonReply({'trusted': trusted});
+      await account.login('synthetic-user', 'synthetic-only');
+      await tester.pumpWidget(ApiApplication(session: account));
+      await tester.pumpAndSettle();
+      await tap(tester, 'Device approval');
+      await tap(tester, 'Register this device');
+      expect(
+        find.textContaining('Backend approval is required'),
+        findsOneWidget,
+      );
+      trusted = true;
+      await tap(tester, 'Check device approval again');
+      expect(
+        find.textContaining('server confirms device approval'),
+        findsOneWidget,
+      );
+      final writes = fake.calls.where((call) => call.method == 'POST').toList();
+      expect(writes.map((call) => call.uri.path), [
+        '/api/auth/login',
+        '/api/devices',
+        '/api/devices',
+      ]);
+      expect(writes.last.json, {
+        'DeviceKey': account.deviceKey,
+        'DeviceName': 'Aperture mobile device',
+      });
+    },
+  );
+
+  apiWidgets(
+    'a stale sender-list callback cannot open a different account’s item',
+    (tester) async {
+      fake.contents = [contentJson(mine: true, title: 'First sender item')];
+      await account.login('synthetic-user', 'synthetic-only');
+      await tester.pumpWidget(
+        MaterialApp(home: ApiDashboardScreen(account: account)),
+      );
+      await tester.pumpAndSettle();
+      final stale = tester
+          .widget<ListTile>(find.widgetWithText(ListTile, 'First sender item'))
+          .onTap!;
+      await account.logout();
+      fake.userId = 2;
+      fake.username = 'other-user';
+      fake.contents = [contentJson(mine: true, title: 'Other account item')];
+      await account.login('other-user', 'synthetic-only');
+      await account.refresh();
+      await tester.pumpAndSettle();
+      stale();
+      await tester.pumpAndSettle();
+      expect(find.text('Other account item'), findsOneWidget);
+      expect(find.text('Content Status'), findsNothing);
+    },
+  );
+
   apiWidgets('public HTTP shows the warning and never exposes protected data', (
     tester,
   ) async {
@@ -155,6 +214,50 @@ void main() {
     expect(hide, findsNothing);
     expect(show, findsOne);
   });
+
+  apiWidgets(
+    'new account form validates and returns to sign-in after acknowledgement',
+    (tester) async {
+      await loginForm(tester);
+      fake.routes['/api/register'] = (_) => jsonReply({'success': true});
+      await tap(tester, 'Create an account');
+      await tap(tester, 'Create account');
+      expect(
+        find.text('Enter a password with at least 8 characters.'),
+        findsOneWidget,
+      );
+      expect(fake.calls, isEmpty);
+      for (final (label, text) in [
+        ('First name', 'Synthetic'),
+        ('Last name', 'Example'),
+        ('Username', 'new-user'),
+        ('Password', 'test-password'),
+      ]) {
+        final field = find.widgetWithText(TextFormField, label);
+        await tester.ensureVisible(field);
+        await tester.enterText(field, text);
+      }
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tap(tester, 'Create account');
+      expect(
+        find.text('Account created. Sign in with your new credentials.'),
+        findsOneWidget,
+      );
+      final username = find.descendant(
+        of: find.byKey(const ValueKey('login-username')),
+        matching: find.byType(TextField),
+      );
+      final password = find.descendant(
+        of: find.byKey(const ValueKey('login-password')),
+        matching: find.byType(TextField),
+      );
+      expect(tester.widget<TextField>(username).controller!.text, 'new-user');
+      expect(tester.widget<TextField>(password).controller!.text, isEmpty);
+      expect(fake.calls.single.uri.path, '/api/register');
+      expect(account.authenticated, isFalse);
+    },
+  );
 
   apiWidgets(
     'classroom status is read-only and scoped to the signed-in account',
@@ -712,6 +815,182 @@ void main() {
       hasLength(1),
     );
   });
+
+  apiWidgets('owner time editor saves and reads back the stored window', (
+    tester,
+  ) async {
+    const path = '/api/situational/content/7/time';
+    const start = '2026-11-06T14:00:00.000Z';
+    String? storedStart;
+    String? storedExpiry = '2026-11-07T12:00:00.000Z';
+    await status(tester);
+    fake.routes[path] = (call) {
+      if (call.method == 'POST') {
+        final body = call.json as Map<String, dynamic>;
+        expect(body, {'StartTime': start, 'ExpiresAt': null});
+        storedStart = body['StartTime'] as String?;
+        storedExpiry = body['ExpiresAt'] as String?;
+        fake.contents.single
+          ..['StartTime'] = storedStart
+          ..['ExpiresAt'] = storedExpiry;
+        return jsonReply({'success': true});
+      }
+      return jsonReply({
+        'passed': storedStart == null,
+        'reason': storedStart == null ? null : 'Access has not begun.',
+        'startTime': storedStart,
+        'expiresAt': storedExpiry,
+      });
+    };
+    await tap(tester, 'Edit viewing time');
+    final startField = find.widgetWithText(TextField, 'Viewing start');
+    final expiryField = find.widgetWithText(TextField, 'Viewing expiration');
+    final save = find.widgetWithText(ElevatedButton, 'Save viewing time');
+    expect(
+      tester.widget<TextField>(expiryField).controller!.text,
+      storedExpiry,
+    );
+    expect(tester.widget<ElevatedButton>(save).onPressed, isNull);
+    await tester.enterText(startField, '2026-11-06T14:00:00');
+    await tester.pump();
+    expect(tester.widget<ElevatedButton>(save).onPressed, isNull);
+    await tester.enterText(startField, '2026-11-06T09:00:00-05:00');
+    await tester.enterText(expiryField, '');
+    await tester.pump();
+    await tap(tester, 'Save viewing time');
+    expect(find.text('Viewing time confirmed by the server.'), findsOneWidget);
+    expect(tester.widget<TextField>(startField).controller!.text, start);
+    expect(tester.widget<TextField>(expiryField).controller!.text, isEmpty);
+    expect(
+      fake.calls
+          .where((call) => call.uri.path == path)
+          .map((call) => call.method),
+      ['GET', 'POST', 'GET'],
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Listed viewing start: $start'), findsOneWidget);
+    expect(
+      find.text('Viewing time update acknowledged by the server.'),
+      findsOneWidget,
+    );
+  });
+
+  apiWidgets(
+    'leaving a pending time edit keeps owner actions blocked on return',
+    (tester) async {
+      const path = '/api/situational/content/7/time';
+      final pending = Completer<ApiReply>();
+      await status(tester);
+      fake.routes[path] = (call) => call.method == 'POST'
+          ? pending.future
+          : jsonReply({
+              'passed': true,
+              'reason': null,
+              'startTime': null,
+              'expiresAt': null,
+            });
+      await tap(tester, 'Edit viewing time');
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Viewing start'),
+        '2026-11-06T14:00:00Z',
+      );
+      await tester.pump();
+      await tap(tester, 'Save viewing time', settle: false);
+      await tester.pageBack();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(account.pending(7), isTrue);
+      expect(
+        tester
+            .widget<TextButton>(
+              find.widgetWithText(TextButton, 'Refresh status'),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      for (final label in [
+        'Pause policy',
+        'Revoke access',
+        'Edit viewing area',
+      ]) {
+        expect(
+          tester
+              .widget<ElevatedButton>(
+                find.widgetWithText(ElevatedButton, label),
+              )
+              .onPressed,
+          isNull,
+        );
+      }
+      pending.complete(jsonReply({'success': true}));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('previous viewing-time update remains unconfirmed'),
+        findsOneWidget,
+      );
+      await tap(tester, 'Refresh status');
+      await tap(tester, 'Review viewing time');
+      expect(
+        find.textContaining('Authoritative reconciliation is required'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<ElevatedButton>(
+              find.widgetWithText(ElevatedButton, 'Save viewing time'),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        fake.calls.where(
+          (call) => call.uri.path == path && call.method == 'POST',
+        ),
+        hasLength(1),
+      );
+    },
+  );
+
+  apiWidgets(
+    'an acknowledged time edit with different read-back requires refresh',
+    (tester) async {
+      const path = '/api/situational/content/7/time';
+      await status(tester);
+      fake.routes[path] = (call) => call.method == 'POST'
+          ? jsonReply({'success': true})
+          : jsonReply({
+              'passed': true,
+              'reason': null,
+              'startTime': null,
+              'expiresAt': null,
+            });
+      await tap(tester, 'Edit viewing time');
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Viewing start'),
+        '2026-11-06T14:00:00Z',
+      );
+      await tester.pump();
+      await tap(tester, 'Save viewing time');
+      expect(
+        find.textContaining(
+          'acknowledged the update, but returned a different window',
+        ),
+        findsOneWidget,
+      );
+      expect(account.ownerControl(7)?.$2, OwnerControlPhase.confirmed);
+      final save = find.widgetWithText(ElevatedButton, 'Save viewing time');
+      expect(tester.widget<ElevatedButton>(save).onPressed, isNull);
+      await tap(tester, 'Refresh viewing time');
+      expect(tester.widget<ElevatedButton>(save).onPressed, isNull);
+      expect(
+        fake.calls.where(
+          (call) => call.uri.path == path && call.method == 'POST',
+        ),
+        hasLength(1),
+      );
+    },
+  );
 
   apiWidgets('pause/resume UI waits for backend acknowledgement and refresh', (
     tester,

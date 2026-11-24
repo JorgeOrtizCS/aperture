@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../widgets/aperture_button.dart';
 import '../widgets/aperture_text_field.dart';
 import 'dashboard_screen.dart';
+import 'register_account_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -24,6 +25,25 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _errorMessage;
   bool _pending = false;
   String? _probeResult;
+  String? _registrationNotice;
+
+  Future<void> _openRegistration(ApiSession account) async {
+    if (_pending || account.registeringAccount) return;
+    _passwordController.clear();
+    final username = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RegisterAccountScreen(account: account),
+      ),
+    );
+    if (!mounted || username == null) return;
+    _usernameController.text = username;
+    setState(() {
+      _errorMessage = null;
+      _registrationNotice =
+          'Account created. Sign in with your new credentials.';
+    });
+  }
 
   Future<void> _checkApi(ApiSession account) async {
     setState(() {
@@ -60,6 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() {
       _errorMessage = null;
+      _registrationNotice = null;
     });
 
     final account = ApiScope.maybeOf(context);
@@ -282,6 +303,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 label: _pending ? 'Signing in…' : 'Sign In',
                 onPressed: _pending ? null : _handleLogin,
               ),
+              if (_registrationNotice case final notice?)
+                Semantics(liveRegion: true, child: Text(notice)),
+              if (account?.api.canRegisterAccount == true)
+                ListenableBuilder(
+                  listenable: account!,
+                  builder: (context, _) => TextButton(
+                    onPressed: _pending || account.registeringAccount
+                        ? null
+                        : () => _openRegistration(account),
+                    child: const Text('Create an account'),
+                  ),
+                ),
 
               const SizedBox(height: 24),
 

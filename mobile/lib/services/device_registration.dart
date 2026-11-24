@@ -25,12 +25,15 @@ class DeviceRegistration extends ChangeNotifier {
       account.authenticated &&
       account.identityVersion == _identity;
 
+  bool get deviceKeyConfigured => account.deviceKey?.isNotEmpty == true;
+  bool get canRegister => _eligible && deviceKeyConfigured;
+
   void _accountChanged() {
     if (!_eligible) cancel();
   }
 
   Future<void> register(String name) async {
-    if (!_eligible || pending) return;
+    if (!canRegister || pending) return;
     final generation = ++_generation;
     pending = true;
     trusted = null;

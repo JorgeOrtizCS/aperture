@@ -46,6 +46,7 @@ class ContentCreateRequest {
   final int? maxViews;
   final bool requireTrustedDevice, screenshotRestriction;
   final LocationZone? location;
+  final NetworkLocation networkLocation;
 
   const ContentCreateRequest._({
     required this.title,
@@ -56,6 +57,7 @@ class ContentCreateRequest {
     required this.requireTrustedDevice,
     required this.screenshotRestriction,
     required this.location,
+    required this.networkLocation,
   });
 
   factory ContentCreateRequest.validate({
@@ -69,16 +71,14 @@ class ContentCreateRequest {
     bool requireTrustedDevice = false,
     required bool screenshotRestriction,
     LocationZone? location,
+    NetworkLocation networkLocation = const NetworkLocation(),
   }) {
     title = title.trim();
     recipient = recipient.trim();
     if (title.isEmpty || title.length > 160 || _controls.hasMatch(title)) {
       throw const ContentDraftException(ContentDraftProblem.title);
     }
-    if (recipient.isEmpty ||
-        recipient.length > 100 ||
-        _controls.hasMatch(recipient) ||
-        recipient.toLowerCase() == sender.trim().toLowerCase()) {
+    if (!validRecipient(recipient, sender: sender)) {
       throw const ContentDraftException(ContentDraftProblem.recipient);
     }
     if ((maxViews != null && (maxViews < 1 || maxViews > 0x7fffffff)) ||
@@ -86,7 +86,8 @@ class ContentCreateRequest {
         (startTime != null &&
             expiresAt != null &&
             !expiresAt.isAfter(startTime)) ||
-        (location != null && !location.valid)) {
+        (location != null && (!location.valid || networkLocation.enabled)) ||
+        !networkLocation.valid) {
       throw const ContentDraftException(ContentDraftProblem.policy);
     }
     return ContentCreateRequest._(
@@ -98,7 +99,16 @@ class ContentCreateRequest {
       requireTrustedDevice: requireTrustedDevice,
       screenshotRestriction: screenshotRestriction,
       location: location,
+      networkLocation: networkLocation,
     );
+  }
+
+  static bool validRecipient(String input, {required String sender}) {
+    final username = input.trim();
+    return username.isNotEmpty &&
+        username.length <= 100 &&
+        !_controls.hasMatch(username) &&
+        username.toLowerCase() != sender.trim().toLowerCase();
   }
 
   /// Expects original bytes that have already passed the local PNG decoder.
@@ -134,6 +144,12 @@ class ContentCreateRequest {
         'Longitude': zone.longitude,
         'RadiusMeters': zone.radiusMeters,
       },
+      if (networkLocation.country.trim().isNotEmpty)
+        'AllowedCountry': networkLocation.country.trim(),
+      if (networkLocation.region.trim().isNotEmpty)
+        'AllowedRegion': networkLocation.region.trim(),
+      if (networkLocation.city.trim().isNotEmpty)
+        'AllowedCity': networkLocation.city.trim(),
     };
   }
 

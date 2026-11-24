@@ -74,6 +74,28 @@ void main() {
         expect(account.items.single.locationZone, _next);
       },
     );
+    test(
+      'an acknowledged GPS edit replaces a listed network location',
+      () async {
+        api.contents = [
+          {..._row(zone: null), 'AllowedRegion': 'Example Region'},
+        ];
+        await account.refresh();
+        expect(account.items.single.networkLocation.parts, ['Example Region']);
+        await save();
+        expect(writes().single.json, {
+          'Latitude': _next.latitude,
+          'Longitude': _next.longitude,
+          'RadiusMeters': _next.radiusMeters,
+        });
+        expect(account.items.single.locationZone, _next);
+        expect(account.items.single.networkLocation.enabled, isFalse);
+        expect(
+          account.listedOwnerItems(7).single.networkLocation.enabled,
+          isTrue,
+        );
+      },
+    );
     for (final radius in [10.0, 30.0, 100.0, 500.0, 1000.0, 10000.0, 10.5]) {
       test(
         'supported radius $radius preserves numeric center and radius',

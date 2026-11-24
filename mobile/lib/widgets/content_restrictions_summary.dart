@@ -18,7 +18,9 @@ class ContentRestrictionsSummary extends StatelessWidget {
     final area = restrictions.locationArea;
     final radius = area.radiusMeters?.toStringAsFixed(1);
     final areaLabel = !area.enabled
-        ? 'No area selected'
+        ? restrictions.networkLocation.enabled
+              ? 'Network location · ${restrictions.networkLocation.parts.join(', ')}'
+              : 'No area selected'
         : area.valid
         ? '$radius m radius'
         : 'Invalid area';
@@ -47,6 +49,14 @@ class ContentRestrictionsSummary extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
+          if (senderDraft && restrictions.viewingStartsAt != null) ...[
+            _PolicyLine(
+              icon: Icons.schedule_outlined,
+              label:
+                  'Viewing starts at ${restrictions.viewingStartsAt!.toUtc().toIso8601String()}',
+            ),
+            const SizedBox(height: 12),
+          ],
           _PolicyLine(
             icon: Icons.schedule_outlined,
             label: '$expirationLabel: ${restrictions.accessDuration.label}',
@@ -59,14 +69,21 @@ class ContentRestrictionsSummary extends StatelessWidget {
             emphasized: true,
           ),
           const SizedBox(height: 16),
-          if (senderDraft)
+          if (senderDraft) ...[
+            if (restrictions.requireTrustedDevice) ...[
+              const _PolicyLine(
+                icon: Icons.devices_outlined,
+                label: 'Service-approved device required in draft',
+              ),
+              const SizedBox(height: 12),
+            ],
             _PolicyLine(
               icon: Icons.screenshot_monitor_outlined,
               label: restrictions.restrictScreenshots
                   ? 'Screenshot restriction: Requested in draft'
                   : 'Screenshot restriction: No preference selected',
-            )
-          else
+            ),
+          ] else
             Wrap(
               spacing: 8,
               runSpacing: 8,

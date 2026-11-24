@@ -16,9 +16,11 @@ import '../services/device_registration.dart';
 import '../services/screen_capture_protection.dart';
 import '../widgets/aperture_button.dart';
 import '../widgets/content_restrictions_section.dart';
+import '../widgets/device_registration_panel.dart';
 import 'notifications_screen.dart';
 import 'secure_viewer_screen.dart';
 import 'api_location_edit_screen.dart';
+import 'api_time_edit_screen.dart';
 import 'share_content_screen.dart';
 
 class ApiDashboardScreen extends StatefulWidget {
@@ -47,21 +49,26 @@ class _ApiDashboardScreenState extends State<ApiDashboardScreen> {
   }
 
   void _openDetails(ApiSession account, ApiContent item, int identity) {
-    if (!item.mine &&
-        !account.api.usesClassroomHttp &&
-        (!mounted ||
-            !identical(widget.account, account) ||
-            !account.authenticated ||
-            account.identityVersion != identity ||
-            !account.items.any(
-              (current) => current.id == item.id && !current.mine,
-            ))) {
+    bool currentAccount() =>
+        mounted &&
+        identical(widget.account, account) &&
+        account.authenticated &&
+        account.identityVersion == identity;
+    if (!currentAccount() ||
+        !account.items.any(
+          (current) => current.id == item.id && current.mine == item.mine,
+        )) {
       return;
     }
     Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) {
+          if (!currentAccount()) {
+            return const Scaffold(
+              body: Center(child: Text('Content unavailable to this account.')),
+            );
+          }
           if (account.api.usesClassroomHttp) {
             return ApiContentStatusScreen._classroom(
               account,
@@ -164,6 +171,26 @@ class _ApiDashboardScreenState extends State<ApiDashboardScreen> {
                         icon: const Icon(Icons.add),
                         label: const Text('Prepare PNG'),
                       ),
+                    if (account.api.canOpenContentRoutes &&
+                        !account.api.isFixture)
+                      TextButton.icon(
+                        onPressed: () {
+                          if (!mounted ||
+                              !identical(widget.account, account) ||
+                              account.identityVersion != identity) {
+                            return;
+                          }
+                          Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  _AccountDeviceScreen(account: account),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.devices_outlined),
+                        label: const Text('Device approval'),
+                      ),
                     Semantics(liveRegion: true, child: Text(listingStatus)),
                     if (account.loading)
                       const LinearProgressIndicator(
@@ -217,6 +244,65 @@ class _ApiDashboardScreenState extends State<ApiDashboardScreen> {
               ),
       );
     },
+  );
+}
+
+class _AccountDeviceScreen extends StatefulWidget {
+  final ApiSession account;
+  const _AccountDeviceScreen({required this.account});
+
+  @override
+  State<_AccountDeviceScreen> createState() => _AccountDeviceScreenState();
+}
+
+class _AccountDeviceScreenState extends State<_AccountDeviceScreen> {
+  late final int _identity;
+  late final DeviceRegistration _registration;
+
+  @override
+  void initState() {
+    super.initState();
+    _identity = widget.account.identityVersion;
+    _registration = DeviceRegistration(
+      widget.account,
+      sessionEnded: () => false,
+    );
+  }
+
+  @override
+  void dispose() {
+    _registration.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Device approval')),
+    body: SafeArea(
+      child: ListenableBuilder(
+        listenable: widget.account,
+        builder: (context, _) {
+          final user = widget.account.user;
+          if (user == null || widget.account.identityVersion != _identity) {
+            return const Center(
+              child: Text('Sign in to check device approval.'),
+            );
+          }
+          return ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              Text('Signed in as ${user.username}'),
+              const SizedBox(height: 12),
+              const Text(
+                'Register this device with the service and check whether it has been approved for this account. Viewing still requires its own authorization and device checks.',
+              ),
+              const SizedBox(height: 16),
+              DeviceRegistrationPanel(registration: _registration),
+            ],
+          );
+        },
+      ),
+    ),
   );
 }
 
@@ -382,8 +468,9 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
         OwnerControlAction.pause => account.setPolicy(id, 'Paused'),
         OwnerControlAction.resume => account.setPolicy(id, 'Active'),
         OwnerControlAction.revoke => account.revoke(id),
-        OwnerControlAction.editViewingArea => throw StateError(
-          'Viewing areas are saved through the area editor.',
+        OwnerControlAction.editViewingArea ||
+        OwnerControlAction.editViewingTime => throw StateError(
+          'Viewing policy edits use their own editor.',
         ),
       };
       await _refresh(scope, afterWrite: true);
@@ -395,6 +482,9 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
   String _confirmation(OwnerControlAction action, bool fixture) {
     if (action == OwnerControlAction.editViewingArea) {
       return 'Viewing area update acknowledged by the server.';
+    }
+    if (action == OwnerControlAction.editViewingTime) {
+      return 'Viewing time update acknowledged by the server.';
     }
     final status = action == OwnerControlAction.pause ? 'Paused' : 'Active';
     if (action == OwnerControlAction.revoke) {
@@ -412,9 +502,11 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
     OwnerControlAction action,
     OwnerControlPhase phase,
   ) {
-    final verb = action == OwnerControlAction.editViewingArea
-        ? 'viewing-area update'
-        : action.name;
+    final verb = switch (action) {
+      OwnerControlAction.editViewingArea => 'viewing-area update',
+      OwnerControlAction.editViewingTime => 'viewing-time update',
+      _ => action.name,
+    };
     final (message, key) = switch (phase) {
       OwnerControlPhase.pending => (
         'Request pending… Waiting for the $verb acknowledgement.',
@@ -466,6 +558,12 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
           ownerControl ==
           (OwnerControlAction.editViewingArea, OwnerControlPhase.unconfirmed);
       final reviewArea = areaPending || areaUnconfirmed;
+      final timePending =
+          ownerControl ==
+          (OwnerControlAction.editViewingTime, OwnerControlPhase.pending);
+      final timeUnconfirmed =
+          ownerControl ==
+          (OwnerControlAction.editViewingTime, OwnerControlPhase.unconfirmed);
       final listed = ownerControl == null
           ? const <ApiContent>[]
           : account.listedOwnerItems(id);
@@ -492,6 +590,13 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
                       ),
                     ],
                     Text('Policy: ${item.policyStatus}'),
+                    if (item.startTime case final start?)
+                      Text('Listed viewing start: ${start.toIso8601String()}'),
+                    if (item.expiresAt case final expiry?)
+                      Text(
+                        'Listed viewing expiration: ${expiry.toIso8601String()}',
+                      ),
+                    _ListedPolicyDetails(item: item),
                   ],
                   const SizedBox(height: 12),
                   Text(
@@ -515,6 +620,12 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
                             ? 'Revoke is temporarily unavailable because the previous viewing-area update remains unconfirmed. Recipient access may still be active.'
                             : 'Revoke is temporarily unavailable while the viewing-area update is pending.',
                       ),
+                    if (timePending || timeUnconfirmed)
+                      Text(
+                        timeUnconfirmed
+                            ? 'Revoke is temporarily unavailable because the previous viewing-time update remains unconfirmed. Recipient access may still be active.'
+                            : 'Revoke is temporarily unavailable while the viewing-time update is pending.',
+                      ),
                     const Text('Latest observed listing'),
                     if (listed.isEmpty)
                       const Text('No matching listed item is available.'),
@@ -529,7 +640,9 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
                       key: const ValueKey('api-status-refresh-error'),
                     ),
                   TextButton(
-                    onPressed: (pending && !areaPending) || account.loading
+                    onPressed:
+                        (pending && !areaPending && !timePending) ||
+                            account.loading
                         ? null
                         : () => _refresh(scope),
                     child: const Text('Refresh status'),
@@ -577,13 +690,41 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
                     ),
                     const SizedBox(height: 12),
                     ApertureButton(
-                      label: pending && !areaPending
+                      label: pending && !areaPending && !timePending
                           ? 'Request pending…'
                           : 'Revoke access',
                       onPressed: locked
                           ? null
                           : () => _change(scope, OwnerControlAction.revoke),
                     ),
+                    if (!account.api.isFixture) ...[
+                      const SizedBox(height: 12),
+                      ApertureButton(
+                        label: timeUnconfirmed
+                            ? 'Review viewing time'
+                            : 'Edit viewing time',
+                        isSecondary: true,
+                        onPressed:
+                            (locked && !timeUnconfirmed) || account.loading
+                            ? null
+                            : () {
+                                if (timeUnconfirmed
+                                    ? !_canManageItem(scope)
+                                    : !_canChange(scope)) {
+                                  return;
+                                }
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => ApiTimeEditScreen(
+                                      account: account,
+                                      contentId: id,
+                                    ),
+                                  ),
+                                );
+                              },
+                      ),
+                    ],
                   ] else if (_canManage && item != null)
                     const Text(
                       'Revoked recipient access cannot be restored here.',
@@ -592,6 +733,36 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
               ),
       );
     },
+  );
+}
+
+class _ListedPolicyDetails extends StatelessWidget {
+  final ApiContent item;
+  const _ListedPolicyDetails({required this.item});
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (item.maxViews case final limit?) Text('Listed maximum views: $limit'),
+      if (item.requiresTrustedDevice)
+        const Text('Listed device policy: Service-approved device required'),
+      if (item.screenshotRestriction case final restricted?)
+        Text(
+          restricted
+              ? 'Listed screenshot restriction: Required'
+              : 'Listed screenshot restriction: No listed requirement',
+        ),
+      if (item.locationZone case final zone?)
+        Text(
+          'Listed viewing area: ${zone.radiusMeters} m around '
+          '${zone.latitude.toStringAsFixed(6)}, ${zone.longitude.toStringAsFixed(6)}',
+        )
+      else if (item.networkLocation.enabled)
+        Text(
+          'Listed network location: ${item.networkLocation.parts.join(', ')}',
+        ),
+    ],
   );
 }
 
@@ -779,8 +950,12 @@ class _ApiRecipientScreenState extends State<_RecipientAccess>
       );
     }
     final item = items.first;
+    final localStart = item.startTime?.toLocal();
     final localExpiry = item.expiresAt?.toLocal();
     final localizations = MaterialLocalizations.of(context);
+    String localTime(DateTime time) =>
+        '${localizations.formatMediumDate(time)} '
+        '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(time))}';
     final listingLabel =
         _account.loading || _account.contentListingError != null
         ? 'Last known Shared With Me listing'
@@ -805,9 +980,23 @@ class _ApiRecipientScreenState extends State<_RecipientAccess>
             '$listingLabel · Access: ${item.status} · Policy: ${item.policyStatus}',
           ),
           if (localExpiry != null)
-            Text(
-              'Listed viewing deadline: ${localizations.formatMediumDate(localExpiry)} '
-              '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(localExpiry))}',
+            Text('Listed viewing deadline: ${localTime(localExpiry)}'),
+          if (localStart != null ||
+              item.maxViews != null ||
+              item.requiresTrustedDevice ||
+              item.screenshotRestriction != null ||
+              item.locationZone != null ||
+              item.networkLocation.enabled)
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              expandedCrossAxisAlignment: CrossAxisAlignment.start,
+              expandedAlignment: Alignment.centerLeft,
+              title: const Text('Review listed viewing policy'),
+              children: [
+                if (localStart != null)
+                  Text('Listed viewing start: ${localTime(localStart)}'),
+                _ListedPolicyDetails(item: item),
+              ],
             ),
         ],
       ),
@@ -850,7 +1039,7 @@ class _ApiRecipientScreenState extends State<_RecipientAccess>
   );
 
   Widget _deviceChecks() => ListenableBuilder(
-    listenable: Listenable.merge([_conditions, _registration, _viewing]),
+    listenable: Listenable.merge([_conditions, _viewing]),
     builder: (context, _) {
       if (_conditions.sessionEnded || _viewing.sessionEnded) {
         return const SizedBox.shrink();
@@ -876,27 +1065,7 @@ class _ApiRecipientScreenState extends State<_RecipientAccess>
                 ),
               ),
           ],
-          Text(
-            _registration.message,
-            key: const ValueKey('device-registration-status'),
-          ),
-          TextButton(
-            onPressed: _registration.pending
-                ? null
-                : () => unawaited(
-                    _registration.register('Aperture mobile device'),
-                  ),
-            child: Text(
-              _registration.pending
-                  ? 'Registering device…'
-                  : 'Register this device',
-            ),
-          ),
-          if (_registration.pending)
-            TextButton(
-              onPressed: _registration.cancel,
-              child: const Text('Cancel registration wait'),
-            ),
+          DeviceRegistrationPanel(registration: _registration),
         ],
       );
     },

@@ -77,14 +77,17 @@ void expectPolicy(ContentRestrictions actual, ContentRestrictions expected) {
   expect(actual.allowDownload, expected.allowDownload);
   expect(actual.allowResharing, expected.allowResharing);
   expect(actual.restrictScreenshots, expected.restrictScreenshots);
+  expect(actual.requireTrustedDevice, expected.requireTrustedDevice);
   expect(actual.accessDuration, expected.accessDuration);
   expect(actual.viewLimit, expected.viewLimit);
+  expect(actual.viewingStartsAt, expected.viewingStartsAt);
 }
 
 Future<void> openEditor(
   WidgetTester tester,
-  ValueChanged<ContentRestrictions?> onResult,
-) async {
+  ValueChanged<ContentRestrictions?> onResult, {
+  bool senderDraft = false,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: AppTheme.theme,
@@ -96,8 +99,9 @@ Future<void> openEditor(
                 await Navigator.push<ContentRestrictions>(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const ViewingRequirementsScreen(
+                    builder: (_) => ViewingRequirementsScreen(
                       initialRestrictions: initialPolicy,
+                      senderDraft: senderDraft,
                     ),
                   ),
                 ),
@@ -114,6 +118,49 @@ Future<void> openEditor(
 }
 
 void main() {
+  testWidgets(
+    'sender can save a network location without creating a GPS area',
+    (tester) async {
+      ContentRestrictions? result;
+      await openEditor(tester, (value) => result = value, senderDraft: true);
+      await tapInList(tester, 'Network location (optional)');
+      final region = find.widgetWithText(TextField, 'Allowed region or state');
+      await revealInList(tester, region);
+      await tester.enterText(region, ' Example Region ');
+      await tester.pump();
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tapInList(tester, 'Save');
+      expect(result?.locationArea.enabled, isFalse);
+      expect(result?.networkLocation.parts, ['Example Region']);
+    },
+  );
+
+  testWidgets('sender draft requires a time zone and saves the start in UTC', (
+    tester,
+  ) async {
+    ContentRestrictions? result;
+    await openEditor(tester, (value) => result = value, senderDraft: true);
+    final field = find.widgetWithText(
+      TextFormField,
+      'Viewing start (optional)',
+    );
+    await revealInList(tester, field);
+    await tester.enterText(field, '2026-11-06T07:00:00');
+    await tester.pump();
+    expect(
+      find.text('Enter a date and time with a time zone.'),
+      findsOneWidget,
+    );
+    final save = find.widgetWithText(ElevatedButton, 'Save');
+    await revealInList(tester, save);
+    expect(tester.widget<ElevatedButton>(save).onPressed, isNull);
+    await revealInList(tester, field);
+    await tester.enterText(field, '2026-11-06T07:00:00-05:00');
+    await tester.pump();
+    await tapInList(tester, 'Save');
+    expect(result?.viewingStartsAt, DateTime.utc(2026, 11, 6, 12));
+  });
+
   testWidgets('Save returns all edited settings and keeps input immutable', (
     tester,
   ) async {
@@ -338,7 +385,7 @@ void main() {
         );
         expect(
           tester.widgetList<Switch>(find.byType(Switch)).map((s) => s.value),
-          [false, false],
+          [false, false, false],
         );
         await toggle(tester, 'Screenshot restriction preference');
         await selectViewLimit(
