@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../models/location_radius_policy.dart';
+import 'location_area_editor.dart';
 import 'restriction_tile.dart';
 
 enum AccessDuration {
@@ -15,11 +17,21 @@ enum AccessDuration {
 }
 
 class ContentRestrictions {
+  /// Initial policy for local demo content; this does not enable enforcement.
+  static const demoDefaults = ContentRestrictions(
+    allowDownload: false,
+    allowResharing: false,
+    restrictScreenshots: true,
+    accessDuration: AccessDuration.twoDays,
+    viewLimit: 3,
+  );
+
   final bool allowDownload;
   final bool allowResharing;
   final bool restrictScreenshots;
   final AccessDuration accessDuration;
   final int? viewLimit;
+  final SenderLocationDraft locationArea;
 
   const ContentRestrictions({
     required this.allowDownload,
@@ -27,6 +39,7 @@ class ContentRestrictions {
     required this.restrictScreenshots,
     required this.accessDuration,
     this.viewLimit,
+    this.locationArea = const SenderLocationDraft(),
   });
 
   ContentRestrictions copyWith({
@@ -36,6 +49,7 @@ class ContentRestrictions {
     AccessDuration? accessDuration,
     int? viewLimit,
     bool clearViewLimit = false,
+    SenderLocationDraft? locationArea,
   }) {
     return ContentRestrictions(
       allowDownload: allowDownload ?? this.allowDownload,
@@ -43,6 +57,7 @@ class ContentRestrictions {
       restrictScreenshots: restrictScreenshots ?? this.restrictScreenshots,
       accessDuration: accessDuration ?? this.accessDuration,
       viewLimit: clearViewLimit ? null : viewLimit ?? this.viewLimit,
+      locationArea: locationArea ?? this.locationArea,
     );
   }
 }
@@ -50,44 +65,63 @@ class ContentRestrictions {
 class ContentRestrictionsSection extends StatelessWidget {
   final ContentRestrictions restrictions;
   final ValueChanged<ContentRestrictions> onChanged;
+  final bool senderDraft;
 
   const ContentRestrictionsSection({
     super.key,
     required this.restrictions,
     required this.onChanged,
+    this.senderDraft = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        RestrictionTile(
-          title: 'Allow Download',
-          subtitle: restrictions.allowDownload
-              ? 'Recipient may save a local copy.'
-              : 'Download is disabled for the recipient.',
-          icon: Icons.file_download_outlined,
-          enabled: restrictions.allowDownload,
-          onChanged: (value) {
-            onChanged(restrictions.copyWith(allowDownload: value));
-          },
+        LocationAreaEditor(
+          draft: restrictions.locationArea,
+          onChanged: (value) =>
+              onChanged(restrictions.copyWith(locationArea: value)),
         ),
         const SizedBox(height: 12),
-        RestrictionTile(
-          title: 'Allow Resharing',
-          subtitle: restrictions.allowResharing
-              ? 'Recipient may share access with others.'
-              : 'Recipient cannot reshare this content.',
-          icon: Icons.ios_share_outlined,
-          enabled: restrictions.allowResharing,
-          onChanged: (value) {
-            onChanged(restrictions.copyWith(allowResharing: value));
-          },
-        ),
+        if (senderDraft)
+          const Text(
+            'Download and resharing permissions are unavailable.',
+            style: TextStyle(color: AppTheme.textSecondary),
+          )
+        else ...[
+          RestrictionTile(
+            title: 'Allow Download',
+            subtitle: restrictions.allowDownload
+                ? 'Policy permits saving a local copy.'
+                : 'Policy does not permit downloading.',
+            icon: Icons.file_download_outlined,
+            enabled: restrictions.allowDownload,
+            onChanged: (value) {
+              onChanged(restrictions.copyWith(allowDownload: value));
+            },
+          ),
+          const SizedBox(height: 12),
+          RestrictionTile(
+            title: 'Allow Resharing',
+            subtitle: restrictions.allowResharing
+                ? 'Policy permits sharing access with others.'
+                : 'Policy does not permit resharing.',
+            icon: Icons.ios_share_outlined,
+            enabled: restrictions.allowResharing,
+            onChanged: (value) {
+              onChanged(restrictions.copyWith(allowResharing: value));
+            },
+          ),
+        ],
         const SizedBox(height: 12),
         RestrictionTile(
-          title: 'Screenshot Protection',
-          subtitle: restrictions.restrictScreenshots
+          title: senderDraft
+              ? 'Screenshot restriction preference'
+              : 'Screenshot Protection',
+          subtitle: senderDraft
+              ? 'A draft preference. App capture protection operates independently.'
+              : restrictions.restrictScreenshots
               ? 'Show screenshot restriction in the viewing policy.'
               : 'No screenshot restriction is selected.',
           icon: Icons.screenshot_monitor_outlined,
@@ -99,8 +133,11 @@ class ContentRestrictionsSection extends StatelessWidget {
         const SizedBox(height: 12),
         _PickerCard(
           icon: Icons.schedule_outlined,
-          label: 'Expiration',
+          label: senderDraft ? 'Expiration duration' : 'Expiration',
           child: DropdownButtonFormField<AccessDuration>(
+            isExpanded: true,
+            isDense: false,
+            itemHeight: null,
             initialValue: restrictions.accessDuration,
             decoration: const InputDecoration(
               border: InputBorder.none,
@@ -123,8 +160,11 @@ class ContentRestrictionsSection extends StatelessWidget {
         const SizedBox(height: 12),
         _PickerCard(
           icon: Icons.visibility_outlined,
-          label: 'View Limit',
+          label: senderDraft ? 'Maximum views' : 'View Limit',
           child: DropdownButtonFormField<String>(
+            isExpanded: true,
+            isDense: false,
+            itemHeight: null,
             initialValue: restrictions.viewLimit?.toString() ?? 'unlimited',
             decoration: const InputDecoration(
               border: InputBorder.none,

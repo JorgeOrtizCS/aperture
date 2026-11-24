@@ -1,1 +1,4 @@
 #include "Generated.xcconfig"
+
+// Enable native diagnostics guarded by #if DEBUG in iPhone debug builds.
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DEBUG

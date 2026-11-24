@@ -1,0 +1,18 @@
+{
+  "APERTURE_ACCEPTANCE_ENVIRONMENT": "",
+  "APERTURE_API_BASE_URL": "",
+  "APERTURE_DEVICE_KEY": "",
+  "APERTURE_ACCEPTANCE_CONTENT_ID": null,
+  "sender": {
+    "username": "",
+    "password": ""
+  },
+  "recipient": {
+    "username": "",
+    "password": ""
+  },
+  "APERTURE_CLASSROOM_APPROVED_ORIGIN": "",
+  "APERTURE_CLASSROOM_SENDER": "",
+  "APERTURE_CLASSROOM_RECIPIENT": "",
+  "APERTURE_CLASSROOM_ARCHIVED_PNG_IDS": ""
+}

@@ -3,15 +3,22 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/aperture_button.dart';
 import '../widgets/section_header.dart';
+import '../widgets/content_restrictions_section.dart';
+import '../widgets/content_restrictions_summary.dart';
+import 'secure_viewer_screen.dart';
 
 class ContentStatusScreen extends StatefulWidget {
   final String contentTitle;
   final String recipientSummary;
+  final String description;
+  final ContentRestrictions restrictions;
 
   const ContentStatusScreen({
     super.key,
     this.contentTitle = 'Confidential File',
     this.recipientSummary = '1 recipient',
+    this.description = '',
+    this.restrictions = ContentRestrictions.demoDefaults,
   });
 
   @override
@@ -30,8 +37,8 @@ class _ContentStatusScreenState extends State<ContentStatusScreen> {
       SnackBar(
         content: Text(
           _accessRevoked
-              ? 'Access has been marked as revoked.'
-              : 'Access has been restored.',
+              ? 'Local demo access marked as revoked. No server access was changed.'
+              : 'Local demo access marked as active. No server access was restored.',
         ),
       ),
     );
@@ -54,6 +61,14 @@ class _ContentStatusScreenState extends State<ContentStatusScreen> {
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
+            const Text(
+              'Local sharing preview only. No file was uploaded, recipient verified, or server access granted. Activity and revoke/restore controls are sample UI state.',
+            ),
+            const SizedBox(height: 16),
+            if (widget.description.isNotEmpty) ...[
+              Text(widget.description),
+              const SizedBox(height: 16),
+            ],
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -114,12 +129,14 @@ class _ContentStatusScreenState extends State<ContentStatusScreen> {
                         color: statusColor,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        statusLabel,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: statusColor,
+                      Expanded(
+                        child: Text(
+                          statusLabel,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: statusColor,
+                          ),
                         ),
                       ),
                     ],
@@ -133,20 +150,24 @@ class _ContentStatusScreenState extends State<ContentStatusScreen> {
               icon: Icons.rule_outlined,
             ),
             const SizedBox(height: 14),
-            const _PolicyRow(
-              label: 'Expiration',
-              value: '48 hours after first open',
-              icon: Icons.schedule_outlined,
-            ),
-            const _PolicyRow(
-              label: 'Location',
-              value: 'Approved area required',
-              icon: Icons.location_on_outlined,
-            ),
-            const _PolicyRow(
-              label: 'Capture',
-              value: 'Screenshots blocked when supported',
-              icon: Icons.screenshot_monitor_outlined,
+            ContentRestrictionsSummary(restrictions: widget.restrictions),
+            const SizedBox(height: 14),
+            ApertureButton(
+              label: 'Preview Policy',
+              icon: Icons.visibility_outlined,
+              isSecondary: true,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => SecureViewerScreen(
+                      contentTitle: widget.contentTitle,
+                      ownerName: 'You (local demo)',
+                      restrictions: widget.restrictions,
+                    ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 28),
             const SectionHeader(
@@ -156,7 +177,7 @@ class _ContentStatusScreenState extends State<ContentStatusScreen> {
             const SizedBox(height: 14),
             const _ActivityItem(
               title: 'Policy created',
-              subtitle: 'Content encrypted and ready to share',
+              subtitle: 'Viewing policy configured for this local demo',
             ),
             const _ActivityItem(
               title: 'Recipient pending',
@@ -170,62 +191,6 @@ class _ContentStatusScreenState extends State<ContentStatusScreen> {
                   : Icons.block_outlined,
               onPressed: _toggleAccess,
               isSecondary: !_accessRevoked,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PolicyRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-
-  const _PolicyRow({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.border),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: AppTheme.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
             ),
           ],
         ),
