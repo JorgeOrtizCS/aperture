@@ -195,13 +195,15 @@ class ApiViewingConditions extends ChangeNotifier
     final identityChanged =
         !account.authenticated || account.identityVersion != _accountIdentity;
     final revoked = items.any((item) => item.status == 'Revoked');
+    final denied = items.any((item) => item.isListedDenied);
     final paused = items.any((item) => item.policyStatus == 'Paused');
-    if (identityChanged || revoked || paused || items.isEmpty) {
-      message = switch ((identityChanged, revoked, paused)) {
-        (true, _, _) =>
+    if (identityChanged || revoked || denied || paused || items.isEmpty) {
+      message = switch ((identityChanged, revoked, denied, paused)) {
+        (true, _, _, _) =>
           'Account verification ended. This viewing session cannot resume.',
-        (_, true, _) => 'The server reports revoked recipient access. This session cannot resume.',
-        (_, _, true) => 'The sender paused access. Open the item again after the policy resumes.',
+        (_, true, _, _) => 'The server reports revoked recipient access. This session cannot resume.',
+        (_, _, true, _) => 'The server reports denied recipient access. This session cannot resume.',
+        (_, _, _, true) => 'The sender paused access. Open the item again after the policy resumes.',
         _ => 'This item is no longer listed for this recipient. This session cannot resume.',
       };
       if (revoked && !identityChanged) {

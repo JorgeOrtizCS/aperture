@@ -17,10 +17,16 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 
 /** Foreground, bounded measurement only. No coordinates are persisted or logged. */
-class DeviceLocationBridge(private val activity: ComponentActivity, messenger: BinaryMessenger) {
+class DeviceLocationBridge internal constructor(
+    private val activity: ComponentActivity,
+    messenger: BinaryMessenger,
+    private val updates: LocationUpdates,
+) {
+    constructor(activity: ComponentActivity, messenger: BinaryMessenger) :
+        this(activity, messenger, PlatformLocationUpdates(activity))
+
     companion object { const val PERMISSION_REQUEST = 7411 }
     private val channel = MethodChannel(messenger, "aperture/device_location")
-    private val manager = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private val handler = Handler(Looper.getMainLooper())
     private var asked = false
     private var dialogOpen = false
@@ -31,6 +37,7 @@ class DeviceLocationBridge(private val activity: ComponentActivity, messenger: B
     private class Request(val owner: Long, val id: Long, val result: MethodChannel.Result) {
         val startedWall = System.currentTimeMillis()
         val startedElapsed = SystemClock.elapsedRealtimeNanos()
+        var sawInaccurateFix = false
         var listener: LocationListener? = null
         var timeout: Runnable? = null
     }
@@ -55,10 +62,14 @@ class DeviceLocationBridge(private val activity: ComponentActivity, messenger: B
                 "locate" -> {
                     val id = call.argument<Number>("request_id")?.toLong()
                     val timeout = call.argument<Number>("timeout_ms")?.toLong()
+                    val accuracyArgument = call.argument<Any>("max_accuracy_m")
+                    val maxAccuracy = (accuracyArgument as? Number)?.toDouble()
                     if (owner == null || owner <= 0 || id == null || id <= 0 ||
-                        timeout == null || timeout !in 1L..4000L) {
+                        timeout == null || timeout !in 1L..4000L ||
+                        (accuracyArgument != null &&
+                            (maxAccuracy == null || !maxAccuracy.isFinite() || maxAccuracy <= 0))) {
                         result.success(mapOf("status" to "unavailable"))
-                    } else locate(owner, id, timeout, result)
+                    } else locate(owner, id, timeout, maxAccuracy, result)
                 }
                 "cancelAcquisition" -> { cancelAcquisition(owner); result.success(null) }
                 "close" -> { cancelAcquisition(owner); cancelPermission(owner); result.success(null) }
@@ -91,7 +102,7 @@ class DeviceLocationBridge(private val activity: ComponentActivity, messenger: B
         // Keep dialogOpen until the OS callback, preventing overlapping prompts.
     }
 
-    private fun locate(owner: Long, id: Long, timeout: Long, result: MethodChannel.Result) {
+    private fun locate(owner: Long, id: Long, timeout: Long, maxAccuracy: Double?, result: MethodChannel.Result) {
         if (!foreground()) { result.success(mapOf("status" to "unavailable")); return }
         val permission = permission()
         if (permission != "granted") {
@@ -101,9 +112,10 @@ class DeviceLocationBridge(private val activity: ComponentActivity, messenger: B
         pending?.let { finish(it, mapOf("status" to "cancelled")) }
         val request = Request(owner, id, result)
         pending = request
+        val deadline = request.startedElapsed + timeout * 1_000_000L
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                if (pending !== request || !foreground()) return
+                if (pending !== request || !foreground() || SystemClock.elapsedRealtimeNanos() >= deadline) return
                 val currentPermission = permission()
                 if (currentPermission != "granted") {
                     finish(request, mapOf("status" to currentPermission)); return
@@ -114,13 +126,18 @@ class DeviceLocationBridge(private val activity: ComponentActivity, messenger: B
                     !location.hasAccuracy() || !location.accuracy.isFinite() || location.accuracy < 0 ||
                     location.elapsedRealtimeNanos < request.startedElapsed ||
                     location.time < request.startedWall || location.time > now) return
+                if (maxAccuracy != null && location.accuracy > maxAccuracy) {
+                    // An early network fix must not stop a pending, more accurate GPS fix.
+                    request.sawInaccurateFix = true
+                    return
+                }
                 finish(request, mapOf("status" to "granted", "latitude" to location.latitude,
                     "longitude" to location.longitude, "accuracy_m" to location.accuracy.toDouble(),
                     "timestamp_ms" to location.time))
             }
             override fun onProviderDisabled(provider: String) {
-                if (!manager.isProviderEnabled(LocationManager.GPS_PROVIDER) &&
-                    !manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                if (!updates.isEnabled(LocationManager.GPS_PROVIDER) &&
+                    !updates.isEnabled(LocationManager.NETWORK_PROVIDER)) {
                     finish(request, mapOf("status" to "unavailable"))
                 }
             }
@@ -129,14 +146,20 @@ class DeviceLocationBridge(private val activity: ComponentActivity, messenger: B
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
         }
         request.listener = listener
-        request.timeout = Runnable { finish(request, mapOf("status" to "unavailable")) }
+        request.timeout = Runnable {
+            val status = when (val currentPermission = permission()) {
+                "granted" -> if (request.sawInaccurateFix) "insufficientAccuracy" else "unavailable"
+                else -> currentPermission
+            }
+            finish(request, mapOf("status" to status))
+        }
         handler.postDelayed(request.timeout!!, timeout)
         try {
             val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-                .filter { manager.isProviderEnabled(it) }
+                .filter(updates::isEnabled)
             if (providers.isEmpty()) { finish(request, mapOf("status" to "unavailable")); return }
             for (provider in providers) {
-                manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+                updates.subscribe(provider, listener)
             }
         } catch (_: SecurityException) { finish(request, mapOf("status" to "denied")) }
         catch (_: RuntimeException) { finish(request, mapOf("status" to "unavailable")) }
@@ -146,7 +169,7 @@ class DeviceLocationBridge(private val activity: ComponentActivity, messenger: B
         if (pending !== request) return
         pending = null
         request.timeout?.let { handler.removeCallbacks(it) }
-        request.listener?.let { try { manager.removeUpdates(it) } catch (_: RuntimeException) {} }
+        request.listener?.let { try { updates.unsubscribe(it) } catch (_: RuntimeException) {} }
         request.listener = null; request.timeout = null
         request.result.success(value)
     }
@@ -157,4 +180,21 @@ class DeviceLocationBridge(private val activity: ComponentActivity, messenger: B
     fun inactive() { pending?.let { finish(it, mapOf("status" to "cancelled")) } }
     fun backgrounded() { inactive(); permissionOwner?.let { cancelPermission(it) } }
     fun destroy() { backgrounded(); channel.setMethodCallHandler(null) }
+}
+
+internal interface LocationUpdates {
+    fun isEnabled(provider: String): Boolean
+    fun subscribe(provider: String, listener: LocationListener)
+    fun unsubscribe(listener: LocationListener)
+}
+
+private class PlatformLocationUpdates(context: Context) : LocationUpdates {
+    private val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+    override fun isEnabled(provider: String) = manager.isProviderEnabled(provider)
+
+    override fun subscribe(provider: String, listener: LocationListener) =
+        manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+
+    override fun unsubscribe(listener: LocationListener) = manager.removeUpdates(listener)
 }

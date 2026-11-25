@@ -403,7 +403,7 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
       !_confirmingRevoke &&
       scope.account.items.any(
         (item) =>
-            item.id == scope.contentId && item.mine && item.status != 'Revoked',
+            item.id == scope.contentId && item.mine && item.isListedActive,
       );
 
   bool _canChange(_ContentStatusScope scope) =>
@@ -649,7 +649,7 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
                   ),
                   if (_canManage &&
                       item != null &&
-                      matching.any((item) => item.status != 'Revoked')) ...[
+                      matching.any((item) => item.isListedActive)) ...[
                     ApertureButton(
                       label: reviewArea
                           ? 'Review viewing area'
@@ -726,8 +726,10 @@ class _ApiContentStatusScreenState extends State<ApiContentStatusScreen> {
                       ),
                     ],
                   ] else if (_canManage && item != null)
-                    const Text(
-                      'Revoked recipient access cannot be restored here.',
+                    Text(
+                      matching.any((item) => item.isListedDenied)
+                          ? 'No listed recipient has active access to manage.'
+                          : 'Revoked recipient access cannot be restored here.',
                     ),
                 ],
               ),
@@ -1012,13 +1014,15 @@ class _ApiRecipientScreenState extends State<_RecipientAccess>
       final message = switch ((
         items.isEmpty,
         items.any((item) => item.status == 'Revoked'),
+        items.any((item) => item.isListedDenied),
         items.any((item) => item.policyStatus == 'Paused'),
         _viewing.securityViolation,
       )) {
-        (true, _, _, _) => 'Content unavailable to this account.',
-        (_, true, _, _) => 'The listing reports revoked access. Contact the sender if you expected access.',
-        (_, _, true, _) => 'The listing reports a sender pause. Return to Shared With Me and reopen the item after the sender resumes access.',
-        (_, _, _, true) => 'A local security event ended this session.',
+        (true, _, _, _, _) => 'Content unavailable to this account.',
+        (_, true, _, _, _) => 'The listing reports revoked access. Contact the sender if you expected access.',
+        (_, _, true, _, _) => 'The listing reports denied access. Contact the sender if you expected access.',
+        (_, _, _, true, _) => 'The listing reports a sender pause. Return to Shared With Me and reopen the item after the sender resumes access.',
+        (_, _, _, _, true) => 'A local security event ended this session.',
         _ => _conditions.message,
       };
       return Semantics(

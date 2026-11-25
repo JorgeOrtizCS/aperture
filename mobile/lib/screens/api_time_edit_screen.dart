@@ -36,7 +36,7 @@ class _ApiTimeEditScreenState extends State<ApiTimeEditScreen> {
       _account.authenticated &&
       _account.identityVersion == _identity &&
       _account.items.any(
-        (item) => item.id == _id && item.mine && item.status != 'Revoked',
+        (item) => item.id == _id && item.mine && item.isListedActive,
       );
   bool _current(int generation) =>
       mounted &&

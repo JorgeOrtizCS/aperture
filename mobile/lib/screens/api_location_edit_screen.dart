@@ -44,7 +44,7 @@ class _ApiLocationEditScreenState extends State<ApiLocationEditScreen> {
       !_invalidated &&
       widget.account.authenticated &&
       widget.account.identityVersion == _identity &&
-      _owned.any((item) => item.status != 'Revoked') &&
+      _owned.any((item) => item.isListedActive) &&
       _owned
               .map((item) => (item.locationZone, item.networkLocation))
               .toSet()

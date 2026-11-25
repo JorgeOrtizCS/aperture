@@ -1312,6 +1312,7 @@ void main() {
 
   for (final (status, policy, guidance) in [
     ('Revoked', 'Active', 'The listing reports revoked access.'),
+    ('Denied', 'Active', 'The listing reports denied access.'),
     ('Active', 'Paused', 'The listing reports a sender pause.'),
   ]) {
     apiWidgets('recipient listing $status/$policy remains locked', (
@@ -1337,6 +1338,61 @@ void main() {
       );
     });
   }
+
+  apiWidgets(
+    'stale incoming navigation follows the denied listing and leaves owner status read-only',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(800, 1100);
+      addTearDown(tester.view.reset);
+      fake.contents = [
+        contentJson(title: 'Incoming synthetic item'),
+        contentJson(
+          id: 8,
+          mine: true,
+          title: 'Owned denied item',
+          status: 'Denied',
+        ),
+        contentJson(id: 9, mine: true, title: 'Owned active item'),
+      ];
+      await account.login('synthetic-user', 'synthetic-only');
+      await tester.pumpWidget(ApiApplication(session: account));
+      await tester.pumpAndSettle();
+      final incoming = find.widgetWithText(ListTile, 'Incoming synthetic item');
+      final staleTap = tester.widget<ListTile>(incoming).onTap!;
+      fake.contents.first['Status'] = 'Denied';
+      await account.refresh();
+      await tester.pumpAndSettle();
+      staleTap();
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('The listing reports denied access.'),
+        findsOneWidget,
+      );
+      expect(find.text('Open security checks'), findsNothing);
+      expect(find.text('Check Conditions'), findsNothing);
+      expect(find.text('Edit viewing time'), findsNothing);
+      expect(find.text('Revoke access'), findsNothing);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tap(tester, 'Owned denied item');
+      expect(find.text('Recipient access: Denied'), findsOneWidget);
+      expect(find.text('Pause policy'), findsNothing);
+      expect(find.text('Edit viewing area'), findsNothing);
+      expect(find.text('Edit viewing time'), findsNothing);
+      expect(find.text('Revoke access'), findsNothing);
+      expect(find.text('Refresh status'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tap(tester, 'Owned active item');
+      expect(find.text('Recipient access: Active'), findsOneWidget);
+      expect(find.text('Pause policy'), findsOneWidget);
+      expect(
+        fake.calls.where((call) => call.uri.path.contains('/api/content/')),
+        isEmpty,
+      );
+    },
+  );
 
   apiWidgets('revocation timeout shows unknown outcome without false success', (
     tester,

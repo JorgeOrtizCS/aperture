@@ -132,6 +132,7 @@ class NativeDeviceLocation
             'owner_id': _owner,
             'request_id': ++_sequence,
             'timeout_ms': acquisitionTimeout.inMilliseconds,
+            'max_accuracy_m': limit,
           })
           .timeout(acquisitionTimeout + const Duration(seconds: 1));
       if (_closed || !_foreground || generation != _generation) {
@@ -142,7 +143,8 @@ class NativeDeviceLocation
           'denied' => LocationStatus.denied,
           'permanentlyDenied' => LocationStatus.permanentlyDenied,
           'permissionRequired' => LocationStatus.permissionRequired,
-          'approximate' => LocationStatus.insufficientAccuracy,
+          'approximate' ||
+          'insufficientAccuracy' => LocationStatus.insufficientAccuracy,
           'cancelled' => LocationStatus.cancelled,
           'stale' => LocationStatus.stale,
           _ => LocationStatus.unavailable,
