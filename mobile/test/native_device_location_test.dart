@@ -72,7 +72,27 @@ void main() {
     expect(result.fix!.latitude, 26.37);
     expect(result.fix.toString(), 'LocationFix(redacted)');
     expect(calls.map((c) => c.method), ['permission', 'locate']);
+    expect(calls.last.arguments['max_accuracy_m'], 10.0);
+    expect(calls.last.arguments['timeout_ms'], 4000);
   });
+  test('native accuracy rejection passes no fix to the caller', () async {
+    reply = () async => {'status': 'insufficientAccuracy'};
+    final result = await source.locate();
+    expect(result.status, LocationStatus.insufficientAccuracy);
+    expect(result.fix, isNull);
+  });
+  test(
+    'permission loss after a fresh fix does not reuse or acquire a fix',
+    () async {
+      expect((await source.locate()).status, LocationStatus.granted);
+      calls.clear();
+      permission = 'denied';
+      final result = await source.locate();
+      expect(result.status, LocationStatus.denied);
+      expect(result.fix, isNull);
+      expect(calls.map((c) => c.method), ['permission']);
+    },
+  );
   for (final limit in [null, -1.0, 0.0, double.nan, double.infinity]) {
     test('unknown or invalid accuracy rule $limit collects nothing', () async {
       await source.close();
